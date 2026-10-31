@@ -1,0 +1,77 @@
+# Isolated, disposable stack for browser end-to-end tests. Run it with scripts/run-e2e.sh.
+# Test-only realm and credentials: never reuse them outside this stack.
+name: ojct-e2e
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: controltower
+      POSTGRES_USER: controltower
+      POSTGRES_PASSWORD: e2e-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U controltower -d controltower"]
+      interval: 2s
+      retries: 30
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: e2e-only
+    volumes:
+      - ./keycloak/e2e-realm.json:/opt/keycloak/data/import/realm.json:ro
+    healthcheck:
+      # The image has no curl/wget: talk HTTP to the management port over bash /dev/tcp.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 3s
+      retries: 60
+  backend:
+    build: ..
+    # Initialise the Git working copy the tests register, then start the application.
+    entrypoint: ["sh", "-c", "[ -d /workspace/repos/e2e-repo/.git ] || git init -q /workspace/repos/e2e-repo; exec java -jar /app/app.jar"]
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/controltower
+      DB_USER: controltower
+      DB_PASSWORD: e2e-only
+      # The browser reaches Keycloak as http://keycloak:8080, so that is the token issuer.
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/openjcontroltower
+      KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/openjcontroltower/protocol/openid-connect/certs
+      REPOSITORIES_BASE: /workspace/repos
+      AI_ENABLED: "false"
+      COCKPIT_ENABLED: "false"
+    volumes:
+      - workspace:/workspace/repos
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 3s
+      retries: 60
+  frontend:
+    build: ../frontend
+    volumes:
+      - ./config.js:/usr/share/nginx/html/config.js:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 3s
+      retries: 20
+  e2e:
+    build: .
+    profiles: [test]
+    environment:
+      BASE_URL: http://frontend:8080
+      CI: ${CI:-}
+    volumes:
+      # Read-only view of the workspace, to assert which files the application wrote.
+      - workspace:/workspace/repos:ro
+      - ./playwright-report:/e2e/playwright-report
+      - ./test-results:/e2e/test-results
+volumes:
+  workspace:

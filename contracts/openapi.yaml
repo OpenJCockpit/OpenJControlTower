@@ -1,0 +1,814 @@
+openapi: 3.0.3
+info:
+  title: OpenJControlTower API
+  version: 0.1.0
+  description: Contract-first interview, specification, DAG and OpenJCockpit dispatch API. API changes require
+    a regenerated TypeScript client.
+servers:
+- url: /
+security:
+- bearerJwt: []
+tags:
+- name: Control Tower
+paths:
+  /api/projects:
+    get:
+      tags:
+      - Control Tower
+      operationId: listProjects
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+    post:
+      tags:
+      - Control Tower
+      operationId: createProject
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProject'
+  /api/templates:
+    get:
+      tags:
+      - Control Tower
+      operationId: listTemplates
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Template'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+    post:
+      tags:
+      - Control Tower
+      operationId: createTemplate
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTemplate'
+  /api/projects/{projectId}/interviews:
+    get:
+      tags:
+      - Control Tower
+      operationId: listInterviews
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Interview'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+  /api/interviews:
+    post:
+      tags:
+      - Control Tower
+      operationId: startInterview
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Interview'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInterview'
+  /api/interviews/{id}:
+    get:
+      tags:
+      - Control Tower
+      operationId: getInterview
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Interview'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+  /api/interviews/{id}/answers:
+    post:
+      tags:
+      - Control Tower
+      operationId: answerInterview
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Interview'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitAnswer'
+  /api/interviews/{id}/generate:
+    post:
+      tags:
+      - Control Tower
+      operationId: generateSpecs
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Spec'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpecGenerationRequest'
+  /api/projects/{projectId}/specs:
+    get:
+      tags:
+      - Control Tower
+      operationId: listSpecs
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Spec'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+  /api/projects/{projectId}/graph:
+    get:
+      tags:
+      - Control Tower
+      operationId: getGraph
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Graph'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+  /api/specs/{id}/approve:
+    post:
+      tags:
+      - Control Tower
+      operationId: approveSpec
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Spec'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+  /api/specs/{id}/complete:
+    post:
+      tags:
+      - Control Tower
+      operationId: confirmSpecDone
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Spec'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+  /api/projects/{projectId}/queue/proposal:
+    get:
+      tags:
+      - Control Tower
+      operationId: getQueueProposal
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QueueCandidate'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+  /api/projects/{projectId}/queue/dispatch:
+    post:
+      tags:
+      - Control Tower
+      operationId: dispatchReadySpecs
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DispatchOutcome'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DispatchRequest'
+  /api/spec-templates:
+    get:
+      tags:
+      - Control Tower
+      operationId: listSpecTemplates
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SpecTemplate'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+    post:
+      tags:
+      - Control Tower
+      operationId: createSpecTemplate
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpecTemplate'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSpecTemplate'
+components:
+  securitySchemes:
+    bearerJwt:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        rootPath:
+          type: string
+        cockpitProjectId:
+          type: string
+        workflowId:
+          type: string
+      required:
+      - id
+      - name
+      - rootPath
+      - cockpitProjectId
+      - workflowId
+    Question:
+      type: object
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        required:
+          type: boolean
+        maxFollowUps:
+          type: integer
+        completionCriteria:
+          type: string
+      required:
+      - id
+      - text
+      - required
+      - maxFollowUps
+      - completionCriteria
+    Template:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - PROJECT
+          - FEATURE
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Question'
+      required:
+      - id
+      - name
+      - kind
+      - questions
+    Answer:
+      type: object
+      properties:
+        questionId:
+          type: string
+        question:
+          type: string
+        answer:
+          type: string
+      required:
+      - questionId
+      - question
+      - answer
+    Interview:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        templateId:
+          type: string
+        kind:
+          type: string
+          enum:
+          - PROJECT
+          - FEATURE
+        title:
+          type: string
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - COMPLETE
+          - GENERATED
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Answer'
+        questionIndex:
+          type: integer
+        followUps:
+          type: integer
+        currentQuestion:
+          type: string
+      required:
+      - id
+      - projectId
+      - templateId
+      - kind
+      - title
+      - status
+      - answers
+      - questionIndex
+      - followUps
+      - currentQuestion
+    Spec:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        title:
+          type: string
+        slug:
+          type: string
+        status:
+          type: string
+          enum:
+          - DRAFT
+          - APPROVED
+          - DISPATCHED
+          - DONE
+        body:
+          type: string
+        dependsOn:
+          type: array
+          items:
+            type: string
+        specPath:
+          type: string
+      required:
+      - id
+      - projectId
+      - title
+      - slug
+      - status
+      - body
+      - dependsOn
+      - specPath
+    GraphNode:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        dependsOn:
+          type: array
+          items:
+            type: string
+        ready:
+          type: boolean
+      required:
+      - id
+      - title
+      - status
+      - dependsOn
+      - ready
+    Graph:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphNode'
+        topologicalOrder:
+          type: array
+          items:
+            type: string
+      required:
+      - nodes
+      - topologicalOrder
+    QueueCandidate:
+      type: object
+      properties:
+        specId:
+          type: string
+        title:
+          type: string
+        path:
+          type: string
+        priority:
+          type: integer
+        reason:
+          type: string
+      required:
+      - specId
+      - title
+      - path
+      - priority
+      - reason
+    DispatchOutcome:
+      type: object
+      properties:
+        specId:
+          type: string
+        result:
+          type: string
+      required:
+      - specId
+      - result
+    CreateProject:
+      type: object
+      properties:
+        name:
+          type: string
+        rootPath:
+          type: string
+        cockpitProjectId:
+          type: string
+        workflowId:
+          type: string
+      required:
+      - name
+      - rootPath
+      - cockpitProjectId
+      - workflowId
+    CreateTemplate:
+      type: object
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum:
+          - PROJECT
+          - FEATURE
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Question'
+      required:
+      - name
+      - kind
+      - questions
+    CreateInterview:
+      type: object
+      properties:
+        projectId:
+          type: string
+        templateId:
+          type: string
+        featureRequest:
+          type: string
+      required:
+      - projectId
+      - templateId
+    SubmitAnswer:
+      type: object
+      properties:
+        answer:
+          type: string
+      required:
+      - answer
+    DispatchRequest:
+      type: object
+      properties:
+        repositoryPublished:
+          type: boolean
+      required:
+      - repositoryPublished
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+      - error
+    SpecTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        content:
+          type: string
+        defaultTemplate:
+          type: boolean
+      required:
+      - id
+      - name
+      - content
+      - defaultTemplate
+    CreateSpecTemplate:
+      type: object
+      properties:
+        name:
+          type: string
+        content:
+          type: string
+      required:
+      - name
+      - content
+    SpecGenerationRequest:
+      type: object
+      properties:
+        specTemplateId:
+          type: string
+      required: []

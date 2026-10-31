@@ -1,0 +1,15 @@
+{
+  "realm":"openjcontroltower", "enabled":true, "displayName":"OpenJControlTower DEV",
+  "sslRequired":"none", "registrationAllowed":false,
+  "roles":{"realm":[{"name":"controltower-viewer"},{"name":"controltower-editor"},{"name":"controltower-admin"}]},
+  "clients":[
+    {"clientId":"controltower-web","enabled":true,"publicClient":true,"standardFlowEnabled":true,
+     "directAccessGrantsEnabled":false,"redirectUris":["http://localhost:4000/*","http://localhost:5173/*"],
+     "webOrigins":["http://localhost:4000","http://localhost:5173"],
+     "attributes":{"pkce.code.challenge.method":"S256"}},
+    {"clientId":"openjcontroltower-service","enabled":true,"publicClient":false,"serviceAccountsEnabled":true,
+     "standardFlowEnabled":false,"secret":"change-me-local"}
+  ],
+  "users":[{"username":"developer","enabled":true,"emailVerified":true,
+    "realmRoles":["controltower-editor"],"credentials":[{"type":"password","value":"DevOnly-ChangeMe123!","temporary":false}]}]
+}

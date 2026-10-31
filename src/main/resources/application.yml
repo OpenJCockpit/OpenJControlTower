@@ -1,0 +1,83 @@
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+  # Behind a TLS-terminating ingress / reverse proxy: honour X-Forwarded-* headers.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:framework}
+  error:
+    # ApiErrors returns explicit messages for client errors; never leak internals on 5xx.
+    include-message: never
+    include-stacktrace: never
+spring:
+  application:
+    name: openjcontroltower
+  lifecycle:
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:25s}
+  datasource:
+    url: ${DB_URL:jdbc:h2:file:./data/controltower;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE}
+    username: ${DB_USER:sa}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+  flyway:
+    # Databases created by the pre-Flyway schema.sql are adopted as version 1.
+    baseline-on-migrate: true
+    baseline-version: 1
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/openjcontroltower}
+          jwk-set-uri: ${KEYCLOAK_JWKS_URI:http://localhost:8081/realms/openjcontroltower/protocol/openid-connect/certs}
+      client:
+        registration:
+          openjcockpit:
+            provider: openjcockpit
+            client-id: ${COCKPIT_CLIENT_ID:openjcontroltower-service}
+            client-secret: ${COCKPIT_CLIENT_SECRET:local-placeholder}
+            authorization-grant-type: client_credentials
+        provider:
+          openjcockpit:
+            token-uri: ${COCKPIT_TOKEN_URI:http://localhost:8081/realms/openjcontroltower/protocol/openid-connect/token}
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:unused-in-demo-mode}
+      chat:
+        enabled: ${AI_ENABLED:false}
+        options:
+          model: ${AI_MODEL:gpt-4o-mini}
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:true}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:true}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+controltower:
+  repositories-base: ${REPOSITORIES_BASE:./dev-repositories}
+  http:
+    connect-timeout: ${HTTP_CONNECT_TIMEOUT:5s}
+    read-timeout: ${HTTP_READ_TIMEOUT:30s}
+  ai:
+    enabled: ${AI_ENABLED:false}
+  cockpit:
+    enabled: ${COCKPIT_ENABLED:false}
+    base-url: ${COCKPIT_BASE_URL:http://localhost:8082}
+  decisions:
+    provider: ${DECISION_PROVIDER:deterministic}
+    endpoint: ${DECISION_ENDPOINT:https://api.laya.studio/v1/systemone}
+    api-key: ${DECISION_API_KEY:}

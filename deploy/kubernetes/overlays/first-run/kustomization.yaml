@@ -1,0 +1,65 @@
+# First-run overlay: copy this directory, then edit every value marked CHANGE ME.
+#   cp secrets.env.example secrets.env && cp repositories.txt.example repositories.txt
+#   kubectl apply -k deploy/kubernetes/overlays/first-run
+# See docs/KUBERNETES.md for the full procedure.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: openjcontroltower
+resources:
+  - namespace.yaml
+  - ../../base
+components:
+  - ../../components/bundled-postgres
+  - ../../components/workspace-seed
+  # - ../../components/network-policies
+images:
+  - name: openjcontroltower-backend
+    newName: ghcr.io/CHANGE-ME/openjcontroltower-backend # CHANGE ME
+    newTag: main
+  - name: openjcontroltower-frontend
+    newName: ghcr.io/CHANGE-ME/openjcontroltower-frontend # CHANGE ME
+    newTag: main
+configMapGenerator:
+  - name: openjcontroltower-backend-config
+    behavior: merge
+    literals:
+      # Keycloak: the issuer must equal the "iss" claim browsers receive; JWKS must be reachable from the pod.
+      - KEYCLOAK_ISSUER_URI=https://identity.example.org/realms/engineering # CHANGE ME
+      - KEYCLOAK_JWKS_URI=https://identity.example.org/realms/engineering/protocol/openid-connect/certs # CHANGE ME
+      # OpenJCockpit dispatch stays disabled until the service account is authorized there.
+      - COCKPIT_ENABLED=false
+      - COCKPIT_BASE_URL=https://cockpit.example.org # CHANGE ME
+      - COCKPIT_TOKEN_URI=https://identity.example.org/realms/engineering/protocol/openid-connect/token # CHANGE ME
+      - COCKPIT_CLIENT_ID=openjcontroltower-service
+  - name: openjcontroltower-frontend-runtime
+    behavior: replace
+    files:
+      - config.js
+secretGenerator:
+  - name: openjcontroltower-backend-secrets
+    envs:
+      - secrets.env
+  - name: openjcontroltower-workspace-seed
+    files:
+      - repositories.txt
+patches:
+  - target:
+      kind: Ingress
+      name: openjcontroltower
+    patch: |-
+      - op: add
+        path: /spec/ingressClassName
+        value: nginx # CHANGE ME if your cluster uses another ingress controller
+      - op: replace
+        path: /spec/rules/0/host
+        value: controltower.example.org # CHANGE ME
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts: [controltower.example.org] # CHANGE ME
+            secretName: openjcontroltower-tls
+      # With cert-manager installed, uncomment to have the TLS certificate issued automatically:
+      # - op: add
+      #   path: /metadata/annotations
+      #   value:
+      #     cert-manager.io/cluster-issuer: letsencrypt

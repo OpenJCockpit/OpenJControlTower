@@ -1,0 +1,48 @@
+{
+  "realm": "openjcontroltower",
+  "enabled": true,
+  "displayName": "OpenJControlTower E2E (test only)",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "roles": {
+    "realm": [
+      { "name": "controltower-viewer" },
+      { "name": "controltower-editor" },
+      { "name": "controltower-admin" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "controltower-web",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://frontend:8080/*"],
+      "webOrigins": ["http://frontend:8080"],
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "http://frontend:8080/*" }
+    }
+  ],
+  "users": [
+    {
+      "username": "e2e-editor",
+      "enabled": true,
+      "email": "e2e-editor@example.invalid",
+      "emailVerified": true,
+      "firstName": "E2E",
+      "lastName": "Editor",
+      "realmRoles": ["controltower-editor"],
+      "credentials": [{ "type": "password", "value": "E2E-only-editor-1!", "temporary": false }]
+    },
+    {
+      "username": "e2e-viewer",
+      "enabled": true,
+      "email": "e2e-viewer@example.invalid",
+      "emailVerified": true,
+      "firstName": "E2E",
+      "lastName": "Viewer",
+      "realmRoles": ["controltower-viewer"],
+      "credentials": [{ "type": "password", "value": "E2E-only-viewer-1!", "temporary": false }]
+    }
+  ]
+}

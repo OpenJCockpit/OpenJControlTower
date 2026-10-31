@@ -1,0 +1,12 @@
+# Single-instance PostgreSQL for a first run / evaluation. NOT highly available and not backed up:
+# use a managed PostgreSQL or an operator (e.g. CloudNativePG) for production and drop this component.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - postgres.yaml
+configMapGenerator:
+  - name: openjcontroltower-backend-config
+    behavior: merge
+    literals:
+      - DB_URL=jdbc:postgresql://openjcontroltower-postgres:5432/controltower
+      - DB_USER=controltower

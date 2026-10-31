@@ -1,0 +1,69 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-controltower}
+      POSTGRES_USER: ${POSTGRES_USER:-controltower}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-change-me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 20
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-dev-change-me}
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./infrastructure/keycloak/dev-realm.json:/opt/keycloak/data/import/realm.json:ro
+  backend:
+    build: .
+    # Bind-mounted Git files must be writable by this host UID/GID (Linux default: 1000).
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    ports:
+      - "8080:8080"
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-controltower}
+      DB_USER: ${POSTGRES_USER:-controltower}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-dev-change-me}
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:-http://localhost:8081/realms/openjcontroltower}
+      KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:-http://keycloak:8080/realms/openjcontroltower/protocol/openid-connect/certs}
+      REPOSITORIES_BASE: /workspace/repos
+      AI_ENABLED: ${AI_ENABLED:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-unused-in-demo-mode}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      COCKPIT_ENABLED: ${COCKPIT_ENABLED:-false}
+      COCKPIT_BASE_URL: ${COCKPIT_BASE_URL:-http://host.docker.internal:8082}
+      COCKPIT_TOKEN_URI: ${COCKPIT_TOKEN_URI:-http://keycloak:8080/realms/openjcontroltower/protocol/openid-connect/token}
+      COCKPIT_CLIENT_ID: ${COCKPIT_CLIENT_ID:-openjcontroltower-service}
+      COCKPIT_CLIENT_SECRET: ${COCKPIT_CLIENT_SECRET:-change-me-local}
+      DECISION_PROVIDER: ${DECISION_PROVIDER:-deterministic}
+      DECISION_ENDPOINT: ${DECISION_ENDPOINT:-https://api.laya.studio/v1/systemone}
+      DECISION_API_KEY: ${DECISION_API_KEY:-}
+      CONTROLTOWER_EDITOR_ROLE: ${CONTROLTOWER_EDITOR_ROLE:-controltower-editor}
+      CONTROLTOWER_ADMIN_ROLE: ${CONTROLTOWER_ADMIN_ROLE:-controltower-admin}
+    volumes:
+      - ./dev-repositories:/workspace/repos
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_KEYCLOAK_URL: http://localhost:8081
+    ports:
+      - "4000:8080"
+    depends_on:
+      - backend
+volumes:
+  postgres_data:

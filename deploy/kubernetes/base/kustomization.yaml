@@ -1,0 +1,35 @@
+# OpenJControlTower base. Do not deploy directly: use an overlay that sets namespace, images,
+# identity endpoints and the openjcontroltower-backend-secrets Secret (see overlays/first-run).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: openjcontroltower
+    includeSelectors: false
+resources:
+  - backend.yaml
+  - frontend.yaml
+  - ingress.yaml
+configMapGenerator:
+  # Non-secret backend settings. Overlays merge their environment-specific values into this map.
+  - name: openjcontroltower-backend-config
+    literals:
+      - REPOSITORIES_BASE=/workspace/repos
+      - AI_ENABLED=false
+      - AI_MODEL=gpt-4o-mini
+      - COCKPIT_ENABLED=false
+      - DECISION_PROVIDER=deterministic
+      - DECISION_ENDPOINT=https://api.laya.studio/v1/systemone
+      - CONTROLTOWER_EDITOR_ROLE=controltower-editor
+      - CONTROLTOWER_ADMIN_ROLE=controltower-admin
+      - API_DOCS_ENABLED=false
+      - FORWARD_HEADERS_STRATEGY=framework
+      - LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs
+      - HTTP_CONNECT_TIMEOUT=5s
+      - HTTP_READ_TIMEOUT=30s
+  - name: openjcontroltower-frontend-nginx
+    files:
+      - default.conf=frontend-nginx.conf
+  - name: openjcontroltower-frontend-runtime
+    files:
+      - config.js=frontend-config.js

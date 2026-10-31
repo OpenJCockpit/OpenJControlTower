@@ -1,0 +1,7 @@
+# Restricts in-namespace traffic: only the frontend may call the backend and only the backend
+# may reach PostgreSQL. Requires a CNI that enforces NetworkPolicy (Calico, Cilium, ...).
+# Prometheus scraping from another namespace needs an extra rule (see docs/KUBERNETES.md).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - network-policies.yaml

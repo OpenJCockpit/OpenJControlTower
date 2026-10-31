@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend / Java 25 / Spring Boot 4.1
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version-file: .java-version
+          cache: maven
+      - name: Check JVM
+        run: java --version
+      - name: Build and verify (JaCoCo 100% line coverage)
+        run: mvn --batch-mode --no-transfer-progress clean verify
+      - name: Upload JaCoCo report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-jacoco
+          path: target/site/jacoco/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Upload backend test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-test-results
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  frontend:
+    name: Frontend / Node 22 / OpenAPI
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Generate types from OpenAPI contract
+        run: npm run generate:api
+      - name: Typecheck and build
+        run: npm run build
+      - name: Run frontend unit tests
+        run: npm run test
+
+  containers:
+    name: Docker / backend and frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build backend image (Java 25)
+        run: docker build --pull --tag openjcontroltower-backend:ci .
+      - name: Build frontend image
+        run: docker build --pull --tag openjcontroltower-frontend:ci ./frontend
+
+  renovate-config:
+    name: Renovate / validate configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Validate Renovate configuration (strict)
+        run: npx --yes --package renovate -- renovate-config-validator --strict
+
+  e2e:
+    name: E2E / Playwright + Keycloak
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run browser end-to-end tests (disposable Compose stack)
+        run: sh scripts/run-e2e.sh
+      - name: Upload Playwright report and traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-playwright
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  kubernetes-manifests:
+    name: Kubernetes / render Kustomize overlays
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Render first-run overlay (with example secrets)
+        working-directory: deploy/kubernetes/overlays/first-run
+        run: |
+          cp secrets.env.example secrets.env
+          cp repositories.txt.example repositories.txt
+          kubectl kustomize . > "$RUNNER_TEMP/first-run.yaml"
+          grep -c '^kind:' "$RUNNER_TEMP/first-run.yaml"
+      - name: Render with optional network policies enabled
+        working-directory: deploy/kubernetes/overlays/first-run
+        run: |
+          sed -i 's|  # - ../../components/network-policies|  - ../../components/network-policies|' kustomization.yaml
+          test "$(kubectl kustomize . | grep -c '^kind: NetworkPolicy')" -eq 3
+
+  publish-images:
+    name: Publish images to GHCR
+    # Only verified commits on main and version tags produce deployable images.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [backend, frontend, containers, e2e, kubernetes-manifests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - image: openjcontroltower-backend
+            context: .
+          - image: openjcontroltower-frontend
+            context: ./frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,format=long
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

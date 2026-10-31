@@ -1,0 +1,4 @@
+# Copy to repositories.txt (git-ignored). One "<directory-name> <clone-url>" per line.
+# Register the repository in the UI as /workspace/repos/<directory-name>.
+# For private repositories embed a read/write deploy token: https://x-access-token:TOKEN@github.com/org/repo.git
+example https://github.com/CHANGE-ME/example.git

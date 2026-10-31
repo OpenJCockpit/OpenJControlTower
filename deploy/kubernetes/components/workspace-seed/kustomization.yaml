@@ -1,0 +1,8 @@
+# Clones Git repositories into the workspace volume before the backend starts.
+# Repositories that already exist are left untouched, so restarts never overwrite local work.
+# The list comes from the openjcontroltower-workspace-seed Secret (key repositories.txt):
+# one "<directory-name> <clone-url>" per line. Use a Secret because URLs may embed a deploy token.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - path: seed-init-container.yaml

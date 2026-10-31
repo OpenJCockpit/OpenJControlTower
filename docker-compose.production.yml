@@ -1,0 +1,57 @@
+# Single-host reference deployment. For clusters use deploy/kubernetes (docs/KUBERNETES.md).
+# Terminate TLS with a managed reverse proxy.
+# Requires externally provisioned Keycloak; no seeded credentials.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Required}
+      POSTGRES_USER: ${POSTGRES_USER:?Required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Required}
+    volumes:
+      - prod_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      retries: 10
+  backend:
+    build: .
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:?Required}
+      DB_USER: ${POSTGRES_USER:?Required}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Required}
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:?Required}
+      KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:?Required}
+      REPOSITORIES_BASE: /workspace/repos
+      AI_ENABLED: ${AI_ENABLED:-true}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Required}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      COCKPIT_ENABLED: ${COCKPIT_ENABLED:-true}
+      COCKPIT_BASE_URL: ${COCKPIT_BASE_URL:?Required}
+      COCKPIT_TOKEN_URI: ${COCKPIT_TOKEN_URI:?Required}
+      COCKPIT_CLIENT_ID: ${COCKPIT_CLIENT_ID:?Required}
+      COCKPIT_CLIENT_SECRET: ${COCKPIT_CLIENT_SECRET:?Required}
+      DECISION_PROVIDER: ${DECISION_PROVIDER:-deterministic}
+      DECISION_ENDPOINT: ${DECISION_ENDPOINT:-https://api.laya.studio/v1/systemone}
+      DECISION_API_KEY: ${DECISION_API_KEY:-}
+    volumes:
+      - ${REPOSITORY_HOST_PATH:?Required}:/workspace/repos
+    depends_on:
+      postgres:
+        condition: service_healthy
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:?Required}
+        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:?Required}
+        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:?Required}
+    ports:
+      - "127.0.0.1:4000:8080"
+    depends_on:
+      - backend
+volumes:
+  prod_pg_data:
