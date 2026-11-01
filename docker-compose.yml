@@ -17,14 +17,36 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-dev-change-me}
+      # Same port inside and outside the container, so every URL to this Keycloak uses 8081
+      # (OpenJCockpit's Keycloak uses 8080).
+      KC_HTTP_PORT: 8081
     ports:
-      - "8081:8080"
+      - "8081:8081"
     volumes:
       - ./infrastructure/keycloak/dev-realm.json:/opt/keycloak/data/import/realm.json:ro
+  # Development Git server (HTTP with basic auth), so the stack can clone and push without an
+  # external Git host. Clone from your machine: http://developer:<password>@localhost:8418/git/example.git
+  git-server:
+    build: ./infrastructure/git-server
+    environment:
+      GIT_SERVER_USER: developer
+      GIT_SERVER_PASSWORD: ${GIT_SERVER_PASSWORD:-DevOnly-git-123}
+      GIT_SERVER_REPOSITORIES: example
+    ports:
+      - "8418:8080"
+    volumes:
+      - git_data:/srv/git
+  # Only container and image calls reach Docker; the backend never sees the raw socket.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.1
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
   backend:
     build: .
-    # Bind-mounted Git files must be writable by this host UID/GID (Linux default: 1000).
-    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
     ports:
       - "8080:8080"
     environment:
@@ -32,14 +54,20 @@ services:
       DB_USER: ${POSTGRES_USER:-controltower}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-dev-change-me}
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:-http://localhost:8081/realms/openjcontroltower}
-      KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:-http://keycloak:8080/realms/openjcontroltower/protocol/openid-connect/certs}
-      REPOSITORIES_BASE: /workspace/repos
+      KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:-http://keycloak:8081/realms/openjcontroltower/protocol/openid-connect/certs}
+      # Each approved spec is pushed from a disposable container on this Compose network.
+      GIT_RUNNER: docker
+      DOCKER_PROXY_URL: http://docker-proxy:2375
+      GIT_JOB_DOCKER_NETWORK: openjcontroltower
+      GIT_ALLOW_HTTP: ${GIT_ALLOW_HTTP:-true}
+      GIT_CREDENTIALS_SECRET: ${GIT_CREDENTIALS_SECRET:-dev-only-change-me-at-least-32-characters}
+      GIT_CREDENTIALS_SALT: ${GIT_CREDENTIALS_SALT:-5c0744940b5c369b}
       AI_ENABLED: ${AI_ENABLED:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-unused-in-demo-mode}
       AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
       COCKPIT_ENABLED: ${COCKPIT_ENABLED:-false}
       COCKPIT_BASE_URL: ${COCKPIT_BASE_URL:-http://host.docker.internal:8082}
-      COCKPIT_TOKEN_URI: ${COCKPIT_TOKEN_URI:-http://keycloak:8080/realms/openjcontroltower/protocol/openid-connect/token}
+      COCKPIT_TOKEN_URI: ${COCKPIT_TOKEN_URI:-http://keycloak:8081/realms/openjcontroltower/protocol/openid-connect/token}
       COCKPIT_CLIENT_ID: ${COCKPIT_CLIENT_ID:-openjcontroltower-service}
       COCKPIT_CLIENT_SECRET: ${COCKPIT_CLIENT_SECRET:-change-me-local}
       DECISION_PROVIDER: ${DECISION_PROVIDER:-deterministic}
@@ -47,12 +75,14 @@ services:
       DECISION_API_KEY: ${DECISION_API_KEY:-}
       CONTROLTOWER_EDITOR_ROLE: ${CONTROLTOWER_EDITOR_ROLE:-controltower-editor}
       CONTROLTOWER_ADMIN_ROLE: ${CONTROLTOWER_ADMIN_ROLE:-controltower-admin}
-    volumes:
-      - ./dev-repositories:/workspace/repos
     depends_on:
       postgres:
         condition: service_healthy
       keycloak:
+        condition: service_started
+      docker-proxy:
+        condition: service_started
+      git-server:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -67,3 +97,8 @@ services:
       - backend
 volumes:
   postgres_data:
+  git_data:
+networks:
+  # Fixed name: Git job containers join it by name (GIT_JOB_DOCKER_NETWORK).
+  default:
+    name: openjcontroltower

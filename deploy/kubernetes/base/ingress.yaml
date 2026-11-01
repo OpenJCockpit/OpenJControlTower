@@ -6,6 +6,9 @@ metadata:
   name: openjcontroltower
   labels:
     app.kubernetes.io/name: openjcontroltower
+  annotations:
+    # Spec approval waits for its Git push (GIT_JOB_TIMEOUT). Set the equivalent for other controllers.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
 spec:
   rules:
     - host: controltower.example.org

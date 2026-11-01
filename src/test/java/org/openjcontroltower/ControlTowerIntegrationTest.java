@@ -3,24 +3,23 @@ package org.openjcontroltower;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.openjcontroltower.infrastructure.DataStore;
+import org.openjcontroltower.infrastructure.GitConnectionChecker;
+import org.openjcontroltower.infrastructure.GitJobRunner;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.UUID;
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -29,21 +28,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** Boots the full application on H2 with Flyway, Spring Security and the demo assistant. */
 @SpringBootTest(properties={
     "spring.datasource.url=jdbc:h2:mem:integration;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1",
-    "controltower.cockpit.enabled=false"})
+    "controltower.cockpit.enabled=false",
+    "controltower.git.credentials.secret=integration-test-secret-of-32-chars!",
+    "controltower.git.credentials.salt=0123456789abcdef"})
 class ControlTowerIntegrationTest {
-    private static final Path WORKSPACE;
-    static {
-        try { WORKSPACE=Files.createTempDirectory("ct-workspace"); } catch (IOException e) { throw new IllegalStateException(e); }
-    }
-    @DynamicPropertySource static void workspace(DynamicPropertyRegistry registry) {
-        registry.add("controltower.repositories-base",WORKSPACE::toString);
-    }
+    /** The isolated container is out of scope here: the runner reports a successful push. */
+    @MockitoBean GitJobRunner runner;
+    @MockitoBean GitConnectionChecker checker;
     @Autowired WebApplicationContext context;
     @Autowired DataStore store;
     private final JsonMapper json=JsonMapper.builder().build();
     private MockMvc mvc;
 
-    @BeforeEach void setUp() { mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build(); }
+    @BeforeEach void setUp() {
+        mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+        when(runner.run(anyString(),anyString(),anyString(),anyMap())).thenReturn(new GitJobRunner.Result(0,"OJCT_COMMIT=abc123\n"));
+    }
 
     private MockHttpServletRequestBuilder asEditor(MockHttpServletRequestBuilder request) {
         return request.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_controltower-editor")))
@@ -53,9 +53,9 @@ class ControlTowerIntegrationTest {
         String body=mvc.perform(asEditor(request)).andExpect(status().is(status)).andReturn().getResponse().getContentAsString();
         return body.isEmpty()?null:json.readTree(body);
     }
-    private String newRepository() throws IOException {
-        Path repo=Files.createDirectories(WORKSPACE.resolve("repo-"+UUID.randomUUID()).resolve(".git")).getParent();
-        return repo.toString();
+    private static String project(String name,String gitUrl,String type,String secret) {
+        return "{\"name\":\""+name+"\",\"gitUrl\":\""+gitUrl+"\",\"credentialType\":\""+type+"\",\"gitUsername\":\"bot\","
+            +(secret==null?"":"\"secret\":\""+secret+"\",")+"\"cockpitProjectId\":\"cockpit\",\"workflowId\":\"wf\"}";
     }
 
     @Test void exposesProbesAndMetricsWithoutAuthentication() throws Exception {
@@ -72,8 +72,10 @@ class ControlTowerIntegrationTest {
         mvc.perform(get("/internal").with(jwt())).andExpect(status().isForbidden());
     }
     @Test void validatesInput() throws Exception {
-        call(post("/api/projects").content("{\"name\":\"\",\"rootPath\":\"/x\",\"cockpitProjectId\":\"c\",\"workflowId\":\"w\"}"),400);
-        call(post("/api/projects").content("{\"name\":\"n\",\"rootPath\":\"/etc\",\"cockpitProjectId\":\"c\",\"workflowId\":\"w\"}"),400);
+        call(post("/api/projects").content(project("","https://git.example.org/r.git","NONE",null)),400);
+        call(post("/api/projects").content(project("n","http://git.example.org/r.git","NONE",null)),400);
+        call(post("/api/projects").content(project("n","https://git.example.org/r.git","HTTPS_TOKEN",null)),400);
+        call(put("/api/projects/missing").content(project("n","https://git.example.org/r.git","NONE",null)),400);
         String question="{\"id\":\"q\",\"text\":\"Q?\",\"required\":true,\"maxFollowUps\":1,\"completionCriteria\":\"c\"}";
         call(post("/api/templates").content("{\"name\":\"T\",\"kind\":\"OTHER\",\"questions\":["+question+"]}"),400);
         call(post("/api/templates").content("{\"name\":\"T\",\"kind\":\"PROJECT\",\"questions\":[]}"),400);
@@ -89,10 +91,26 @@ class ControlTowerIntegrationTest {
         JsonNode specTemplate=call(post("/api/spec-templates").content(
             "{\"name\":\"Custom\",\"content\":\"# {{TITLE}}\\nID: {{SPEC_ID}}\\n{{ACCEPTANCE_CRITERIA}}\"}"),201);
 
-        JsonNode project=call(post("/api/projects").content("{\"name\":\" Demo \",\"rootPath\":\""+newRepository()
-            +"\",\"cockpitProjectId\":\"cockpit\",\"workflowId\":\"wf\"}"),201);
+        String created=mvc.perform(asEditor(post("/api/projects").content(project(" Demo ","https://git.example.org/team/demo.git","HTTPS_TOKEN","ghp_secret"))))
+            .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        assertFalse(created.contains("ghp_secret"),"the secret is write-only");
+        JsonNode project=json.readTree(created);
         String projectId=project.get("id").asText();
         assertEquals("Demo",project.get("name").asText());
+        assertTrue(project.get("hasSecret").asBoolean());
+        assertEquals("main",project.get("defaultBranch").asText());
+        when(checker.check("https://git.example.org/team/demo.git","bot","ghp_secret"))
+            .thenReturn(new GitConnectionChecker.Result(true,"OK","Connected"));
+        JsonNode check=call(post("/api/projects/connection-check").content("{\"gitUrl\":\"https://git.example.org/team/demo.git\","
+            +"\"credentialType\":\"HTTPS_TOKEN\",\"gitUsername\":\"bot\",\"projectId\":\""+projectId+"\"}"),200);
+        assertTrue(check.get("reachable").asBoolean());
+        assertEquals("OK",check.get("outcome").asText());
+        call(post("/api/projects/connection-check").content("{\"gitUrl\":\"https://elsewhere.example.net/x.git\","
+            +"\"credentialType\":\"HTTPS_TOKEN\",\"projectId\":\""+projectId+"\"}"),400);
+        call(post("/api/projects/connection-check").content("{\"credentialType\":\"NONE\"}"),400);
+        // Updating without a secret keeps the stored one.
+        JsonNode updated=call(put("/api/projects/"+projectId).content(project("Demo","https://git.example.org/team/demo.git","HTTPS_TOKEN",null)),200);
+        assertTrue(updated.get("hasSecret").asBoolean());
         assertTrue(call(get("/api/projects"),200).size()>=1);
 
         JsonNode interview=call(post("/api/interviews").content("{\"projectId\":\""+projectId+"\",\"templateId\":\""
@@ -112,7 +130,11 @@ class ControlTowerIntegrationTest {
         assertEquals(3,call(get("/api/projects/"+projectId+"/graph"),200).get("topologicalOrder").size());
 
         String first=specs.get(0).get("id").asText();
-        assertEquals("APPROVED",call(post("/api/specs/"+first+"/approve"),200).get("status").asText());
+        JsonNode approved=call(post("/api/specs/"+first+"/approve"),200);
+        assertEquals("APPROVED",approved.get("status").asText());
+        assertEquals("spec/"+first,approved.get("branch").asText());
+        verify(runner).run(anyString(),eq("alpine/git:2.49.1"),contains("git push"),argThat(env->
+            "ghp_secret".equals(env.get("GIT_PASSWORD")) && ("spec/"+first).equals(env.get("OJCT_BRANCH"))));
         call(post("/api/specs/"+first+"/complete"),400);
         JsonNode proposal=call(get("/api/projects/"+projectId+"/queue/proposal"),200);
         assertEquals(first,proposal.get(0).get("specId").asText());
@@ -127,8 +149,7 @@ class ControlTowerIntegrationTest {
         assertEquals("DONE",call(post("/api/specs/"+first+"/complete"),200).get("status").asText());
     }
     @Test void generatesWithDefaultTemplateWhenNoBodyIsSent() throws Exception {
-        JsonNode project=call(post("/api/projects").content("{\"name\":\"Second\",\"rootPath\":\""+newRepository()
-            +"\",\"cockpitProjectId\":\"c\",\"workflowId\":\"wf\"}"),201);
+        JsonNode project=call(post("/api/projects").content(project("Second","https://git.example.org/second.git","NONE",null)),201);
         String projectTemplate=null;
         for (JsonNode t:call(get("/api/templates"),200)) if (t.get("name").asText().equals("Project discovery")) projectTemplate=t.get("id").asText();
         JsonNode interview=call(post("/api/interviews").content("{\"projectId\":\""+project.get("id").asText()

@@ -15,14 +15,15 @@
 
 OpenJControlTower is an open-source **interview-first control plane** for specification-driven software development. It interviews people about a project or feature, optionally uses **Spring AI** to ask clarifying questions and split requirements into **small, testable specs**, validates their **DAG dependencies** and prepares safe execution in [OpenJCockpit](https://github.com/OpenJCockpit/OpenJCockpit).
 
-> **Project status:** Project that is ready for a **first run on a Kubernetes cluster** for a trusted team (see [Kubernetes deployment](docs/KUBERNETES.md)). `mvn clean verify` passes with **100% JaCoCo line coverage** (78 tests, no exclusions) on JDK 25. It is **strongly advised when used for open/internet-wide production to look at**: per-project RBAC, audit logging and upstream queue reconciliation. Demo mode does not call an LLM. The OpenJCockpit integration must be verified against the installed upstream OpenAPI version, identity roles and repository availability.
+> **Project status:** Project that is ready for a **first run on a Kubernetes cluster** for a trusted team (see [Kubernetes deployment](docs/KUBERNETES.md)). `mvn clean verify` passes with **100% JaCoCo line coverage** (115 tests, no exclusions) on JDK 25. It is **strongly advised when used for open/internet-wide production to look at**: per-project RBAC, audit logging and upstream queue reconciliation. Demo mode does not call an LLM. The OpenJCockpit integration must be verified against the installed upstream OpenAPI version, identity roles and repository availability.
 
 ## ✨ Capabilities
 
-- **Repository onboarding:** register a Git working copy restricted to a configured filesystem workspace; associate an OpenJCockpit project ID and workflow ID.
+- **Repository onboarding:** register a remote Git repository by HTTPS URL, base branch and credentials (none, access token, or username and password), like OpenJCockpit's project configuration. Tokens are encrypted at rest and never returned by the API. **Check connection** tests the URL and credentials with a single Git smart-HTTP request (`/info/refs`), without the git CLI and without cloning. Associate an OpenJCockpit project ID and workflow ID.
+- **Isolated Git harness:** approving a spec runs a disposable, locked-down container (Docker locally, a Kubernetes Job on a cluster) that clones the repository, creates the branch `spec/<spec id>`, commits every file separately and pushes. The container is then removed. Nothing is written to the backend's filesystem.
 - **Editable interview and spec templates:** separate project/feature question sets and reusable Markdown file formats with named placeholders; bounded AI follow-up limits.
 - **Conversational discovery:** persistent sessions and follow-ups, whether typed or dictated using browser speech recognition; optional spoken questions.
-- **Small spec decomposition:** optional Spring AI structured output; strict cap of six specs per generation batch, immutable unique IDs, explicit prerequisites and review before filesystem write.
+- **Small spec decomposition:** optional Spring AI structured output; strict cap of six specs per generation batch, immutable unique IDs, explicit prerequisites and human review before anything is pushed.
 - **Repo-native files:** `specs/NNN-slug/spec.md`, `plan.md`, `tasks.md`, `review.md` and the spec index `specs/_index.md`.
 - **Dependency DAG:** Kahn-based topological ordering, missing-edge, duplicate-edge and cycle validation. Only approved specs whose dependencies are DONE are ready.
 - **Decision adapters:** deterministic fallback, or opt-in Jev/Laya `/v1/systemone` ranking for ready nodes.
@@ -40,7 +41,7 @@ flowchart LR
   I --> F[Feature discovery]
   F --> S[Small spec drafts]
   S --> A[Human approval]
-  A --> G[specs/ in Git]
+  A --> G[spec branch in Git]
   G --> D[Dependency DAG]
   D --> Q[Ready work ranking]
   Q --> O[OpenJCockpit queue]
@@ -54,22 +55,28 @@ A condensed walkthrough is also available in the [quickstart](docs/QUICKSTART.md
 ### Prerequisites
 - Docker Engine and `docker compose` plugin
 - Git
-- Ports **4000**, **8080**, **8081** free
+- Ports **4000**, **8080**, **8081**, **8418** free
 
 ```bash
 cp .env.example .env
-sh scripts/init-demo-repo.sh
-# Linux: set LOCAL_UID=$(id -u), LOCAL_GID=$(id -g) in .env if not 1000
 docker compose up --build
 ```
 
+The stack includes a development Git server with one repository, so nothing external is needed. The backend reaches Docker only through a socket proxy that allows container and image calls.
+
 Open **http://localhost:4000** and sign in to the *local development-only* Keycloak realm using `developer` / `DevOnly-ChangeMe123!`. Change/delete this account before any shared deployment.
 
-1. Open **Repositories** and register `/workspace/repos/example`. Enter your OpenJCockpit project ID and workflow ID. They can be placeholders if dispatch is disabled.
+1. Open **Repositories** and connect the development repository:
+   - Git repository URL `http://git-server:8080/git/example.git` (plain HTTP is allowed only because `.env` sets `GIT_ALLOW_HTTP=true`)
+   - Authentication *Username and password*: `developer` / `DevOnly-git-123`
+   - your OpenJCockpit project ID and workflow ID; placeholders are fine while dispatch is disabled.
+
+   For a real repository, use its HTTPS URL and an access token with write access.
 2. Choose **Discovery interviews**. Two interview question templates and one OpenJCockpit-compatible Markdown spec template are seeded automatically; additional templates can be created under **Interview templates**.
 3. Finish an interview. For each question, type or use **Speak** if your browser supports speech recognition.
-4. Generate spec drafts, inspect the Markdown, approve individual specs. Files appear in `dev-repositories/example/specs/` on the host.
-5. Review the dependency graph. Commit and push the generated specs in the target Git repository before you attempt dispatch.
+4. Generate spec drafts, inspect the Markdown, approve individual specs. Each approval pushes a branch `spec/<spec id>` with one commit per file. Look at it from your machine:
+   `git clone -b spec/<spec id> http://developer:DevOnly-git-123@localhost:8418/git/example.git`
+5. Review the dependency graph. Merge the spec branches into the branch OpenJCockpit reads before you attempt dispatch.
 6. Set `COCKPIT_ENABLED=true` and configure the upstream URL, workflow identity and service credentials to actually send ready specs to OpenJCockpit.
 
 **AI is disabled by default.** The deterministic demo assistant creates illustrative specs; do not interpret these as vetted requirements. Real AI:
@@ -91,8 +98,8 @@ docker compose up -d --build backend
 Use JDK 25, Maven 3.9+ and Node 22+:
 
 ```bash
-sh scripts/init-demo-repo.sh
-# Set REPOSITORIES_BASE to the absolute path of ./dev-repositories
+docker compose up -d keycloak git-server docker-proxy
+export GIT_CREDENTIALS_SECRET=dev-only-change-me-at-least-32-characters GIT_CREDENTIALS_SALT=5c0744940b5c369b
 mvn spring-boot:run
 cd frontend
 npm install
@@ -100,24 +107,23 @@ npm run generate:api
 npm run dev
 ```
 
-Run Keycloak separately (`docker compose up -d keycloak`) or configure an existing issuer. Vite runs at **http://localhost:5173**.
+Vite runs at **http://localhost:5173**. A backend running on your machine cannot resolve the Compose service names: to approve specs, expose the socket proxy (`DOCKER_PROXY_URL`) and use a Git URL that is reachable from the job containers, or run the backend in Compose.
 
 ## ☸️ Kubernetes
 
-Kustomize manifests live in [`deploy/kubernetes`](deploy/kubernetes): a `base`, optional components (`bundled-postgres`, `workspace-seed`, `network-policies`) and a `first-run` overlay with every value to change marked `CHANGE ME`.
+Kustomize manifests live in [`deploy/kubernetes`](deploy/kubernetes): a `base`, optional components (`bundled-postgres`, `network-policies`) and a `first-run` overlay with every value to change marked `CHANGE ME`.
 
 ```bash
 cd deploy/kubernetes/overlays/first-run
-cp secrets.env.example secrets.env            # DB password, Cockpit client secret, …
-cp repositories.txt.example repositories.txt  # Git repositories to clone into the workspace
+cp secrets.env.example secrets.env   # DB password, Git credential encryption key, Cockpit client secret, …
 # edit kustomization.yaml (images, Keycloak, host) and config.js (browser OIDC settings)
 kubectl apply -k .
 kubectl -n openjcontroltower rollout status deploy/openjcontroltower-backend
 ```
 
-What you get: one backend replica (`Recreate` strategy, workspace on a ReadWriteOnce volume), two frontend replicas behind a PodDisruptionBudget, an Ingress, optional single-instance PostgreSQL for evaluation, and an init container that clones your repositories. Keycloak is **not** deployed: point the overlay at an existing realm. Images are published to GHCR by CI on `main` and `v*` tags.
+What you get: one stateless backend replica (`Recreate` strategy) that may create a Kubernetes Job per approved spec, two frontend replicas behind a PodDisruptionBudget, an Ingress, and optional single-instance PostgreSQL for evaluation. Keycloak is **not** deployed: point the overlay at an existing realm. Images are published to GHCR by CI on `main` and `v*` tags.
 
-Read the full [Kubernetes deployment guide](docs/KUBERNETES.md) for prerequisites, Keycloak client setup, the Git commit/push workflow on the volume, upgrades, backups and troubleshooting.
+Read the full [Kubernetes deployment guide](docs/KUBERNETES.md) for prerequisites, Keycloak client setup, spec branches and Git credentials, upgrades, backups and troubleshooting.
 
 ## ✅ GitHub Actions CI
 
@@ -133,7 +139,7 @@ The repository contains [`.github/workflows/ci.yml`](.github/workflows/ci.yml). 
 | `kubernetes-manifests` | Renders the `first-run` overlay, with and without the network-policy component |
 | `publish-images` | On `main` and `v*` tags, after all checks pass: pushes both images to `ghcr.io/<owner>/openjcontroltower-{backend,frontend}` |
 
-`mvn clean verify`, the frontend build/tests, the 7 browser E2E tests and both Docker images have been verified locally on JDK 25.0.3 / Maven 3.9.16 / Node 22. The workflows themselves have not yet executed on GitHub, because no remote is connected yet.
+`mvn clean verify`, the frontend build/tests, the 9 browser E2E tests and both Docker images have been verified locally on JDK 25.0.3 / Maven 3.9.16 / Node 22. The workflows themselves have not yet executed on GitHub, because no remote is connected yet.
 
 ## 🔄 Dependency updates with Renovate
 
@@ -154,13 +160,14 @@ openjcontroltower/
 ├── src/main/java/org/openjcontroltower/
 │   ├── domain/                       # DAG rules, types, stable IDs
 │   ├── application/                  # discovery, generation, dispatch
-│   ├── infrastructure/               # JDBC, Git filesystem, Laya/Jev, Cockpit API
+│   ├── infrastructure/               # JDBC, Git jobs (Docker/Kubernetes), Laya/Jev, Cockpit API
 │   ├── api/                          # REST adapter
 │   └── config/                       # security, seed templates
 ├── src/test/                          # JVM tests
 ├── frontend/src/                      # React 19 / TypeScript / SCSS
 ├── src/main/resources/db/migration/   # Flyway versioned schema migrations
 ├── infrastructure/keycloak/           # local Keycloak realm (development only)
+├── infrastructure/git-server/         # Git server over HTTP (development and E2E only)
 ├── e2e/                              # Playwright browser tests + disposable Compose stack
 ├── deploy/kubernetes/                 # Kustomize base, components and first-run overlay
 ├── docs/                              # architecture, Kubernetes + production guidance
@@ -191,7 +198,11 @@ openjcontroltower/
 | `CONTROLTOWER_EDITOR_ROLE`, `CONTROLTOWER_ADMIN_ROLE` | Configurable write-authorized realm roles |
 | `COCKPIT_TOKEN_URI`, `COCKPIT_CLIENT_ID`, `COCKPIT_CLIENT_SECRET` | Separate service-account authorization for queue dispatch |
 | `COCKPIT_BASE_URL`, `COCKPIT_ENABLED` | OpenJCockpit endpoint / opt-in dispatch switch |
-| `REPOSITORIES_BASE` | Root of allowed checked-out Git repositories |
+| `GIT_CREDENTIALS_SECRET`, `GIT_CREDENTIALS_SALT` | **Required.** Key (32+ characters) and hex salt that encrypt the Git tokens stored per repository |
+| `GIT_RUNNER` | `docker` (through `DOCKER_PROXY_URL`, joining `GIT_JOB_DOCKER_NETWORK`) or `kubernetes` (a Job per spec) |
+| `GIT_JOB_IMAGE`, `GIT_JOB_TIMEOUT` | Git job image (default `alpine/git:2.49.1`) and its time limit (default `90s`) |
+| `GIT_BRANCH_PREFIX`, `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | Spec branch prefix (default `spec`) and commit author |
+| `GIT_ALLOW_HTTP` | Accept `http://` Git URLs; only for the development Git server |
 | `AI_ENABLED`, `OPENAI_API_KEY`, `AI_MODEL` | Enable Spring AI-based reasoning instead of demo assistant |
 | `DB_URL`, `DB_USER`, `DB_PASSWORD`, `DB_POOL_SIZE` | JDBC connection; the schema is migrated by Flyway on startup |
 | `HTTP_CONNECT_TIMEOUT`, `HTTP_READ_TIMEOUT` | Bounds for OpenJCockpit and decision-provider calls (default `5s` / `30s`) |
@@ -214,13 +225,14 @@ cd frontend && npm run build
 - **Infrastructure tests:**
   - `DataStore` against H2, migrated by Flyway.
   - The OpenJCockpit and decision-provider HTTP adapters against a real local HTTP server, including errors and timeouts.
-  - Filesystem publishing, including traversal and symlink rejection.
+  - The Git publisher (commits, credentials, masking of secrets in errors) and the Docker and Kubernetes job runners against a simulated Docker Engine and Kubernetes API.
 - **A full `@SpringBootTest`** that drives the REST API through Spring Security with JWTs: it covers authorization, validation, and the interview → spec → approval → dispatch flow.
 
-**Browser end-to-end tests** (Playwright, [`e2e/`](e2e)) run the real stack: PostgreSQL, Keycloak with a test-only realm, the backend and the nginx frontend. Chromium signs in through the actual Keycloak login form, and the suite covers:
+**Browser end-to-end tests** (Playwright, [`e2e/`](e2e)) run the real stack: PostgreSQL, Keycloak with a test-only realm, a Git server, a Docker socket proxy, the backend and the nginx frontend. Chromium signs in through the actual Keycloak login form, and the suite covers:
 
 - **Authorization:** login redirect, rejected credentials, `401` without a token, a viewer receiving `403` on writes, and sign-out.
-- **The main flow:** register a repository (and reject a path outside the workspace), run a project interview with an adaptive follow-up, generate three dependent specs, approve the root spec (and check the files written to the workspace volume), check DAG readiness, dispatch with the `UNKNOWN` no-retry outcome, and start a feature interview.
+- **The main flow:** register a repository with credentials (and reject a URL with embedded credentials), check the connection with a wrong and a right password, check that the password stays write-only when editing, run a project interview with an adaptive follow-up, generate three dependent specs, approve the root spec (then clone the pushed branch and check its files and its five commits), check DAG readiness, dispatch with the `UNKNOWN` no-retry outcome, and start a feature interview. The script fails if any Git job container is left behind.
+- **Navigation:** every sidebar section has its own URL, the back button works, and a bookmarked URL survives the Keycloak login.
 
 ```bash
 sh scripts/run-e2e.sh   # needs only Docker; builds, runs, and always tears the stack down
@@ -232,13 +244,13 @@ The HTML report and failure traces are written to `e2e/playwright-report/` and `
 
 ## 🔐 Security and privacy
 
-JWT validation and server-side roles are enabled; paths are confined to the configured workspace. OpenJCockpit HTTP outcomes are treated conservatively. Interview text and specifications may contain intellectual property: configure LLM and voice services according to your own data policy. In-browser speech recognition may send audio to a browser vendor. Do not send credentials, secrets or sensitive personal data in interview prompts.
+JWT validation and server-side roles are enabled. Git tokens are encrypted at rest (AES-256-GCM), write-only through the API, and only passed to the isolated job container; errors are masked. Git work runs in a disposable container with a read-only root filesystem, no capabilities and memory, process and time limits. OpenJCockpit HTTP outcomes are treated conservatively. Interview text and specifications may contain intellectual property: configure LLM and voice services according to your own data policy. In-browser speech recognition may send audio to a browser vendor. Do not send credentials, secrets or sensitive personal data in interview prompts.
 
-Read [SECURITY.md](SECURITY.md), the [Kubernetes guide](docs/KUBERNETES.md) and [Production guidance](docs/PRODUCTION.md) before exposing this service. Containers run as non-root with read-only root filesystems and all capabilities dropped; health, metrics and versioned migrations are in place. Still missing for wider exposure: project-level permissions (every editor can write to every registered project), an audit trail, and automated upstream queue reconciliation.
+Read [SECURITY.md](SECURITY.md), the [Kubernetes guide](docs/KUBERNETES.md) and [Production guidance](docs/PRODUCTION.md) before exposing this service. Containers run as non-root with read-only root filesystems and all capabilities dropped; health, metrics and versioned migrations are in place. Still missing for wider exposure: project-level permissions (every editor can write to every registered project, with its stored token), an audit trail, and automated upstream queue reconciliation. In Docker, the backend can create containers through the socket proxy, which is close to root on that host: run it on a dedicated host or use Kubernetes.
 
 ## 🛣️ Roadmap
 
-Track the next increments in [`specs/_index.md`](specs/_index.md), including automated Git push/PR integration, verified Cockpit status reconciliation, full-duplex private speech adapters and workspace RBAC/auditing. Versioned migrations (CT-0006), and 100% line coverage with browser E2E tests (CT-0007), are done.
+Track the next increments in [`specs/_index.md`](specs/_index.md), including verification that spec branches are merged before dispatch, verified Cockpit status reconciliation, full-duplex private speech adapters and workspace RBAC/auditing. Versioned migrations (CT-0006), and 100% line coverage with browser E2E tests (CT-0007), are done.
 
 ## 🤝 Contributing
 

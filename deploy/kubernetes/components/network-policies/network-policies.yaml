@@ -49,3 +49,15 @@ spec:
   ingress:
     - ports:
         - port: 8080
+---
+# Git job pods accept no connections; they only clone from and push to the Git host.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openjcontroltower-git-jobs
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openjcontroltower
+      app.kubernetes.io/component: git-job
+  policyTypes: [Ingress]

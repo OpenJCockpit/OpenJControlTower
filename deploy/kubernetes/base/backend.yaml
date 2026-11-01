@@ -7,19 +7,44 @@ metadata:
     app.kubernetes.io/component: backend
 automountServiceAccountToken: false
 ---
-# Git working copies that specs are written into. ReadWriteOnce: the backend runs as a single replica.
-apiVersion: v1
-kind: PersistentVolumeClaim
+# The backend publishes each approved spec from a disposable Job in its own namespace. The Job's inputs,
+# including the Git credentials, go into a Secret owned by the Job, so Kubernetes deletes both together.
+# The backend can create Secrets but never read them.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
 metadata:
-  name: openjcontroltower-workspace
+  name: openjcontroltower-git-jobs
   labels:
     app.kubernetes.io/name: openjcontroltower
     app.kubernetes.io/component: backend
-spec:
-  accessModes: [ReadWriteOnce]
-  resources:
-    requests:
-      storage: 5Gi
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create, get, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openjcontroltower-git-jobs
+  labels:
+    app.kubernetes.io/name: openjcontroltower
+    app.kubernetes.io/component: backend
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openjcontroltower-git-jobs
+subjects:
+  - kind: ServiceAccount
+    name: openjcontroltower-backend
 ---
 apiVersion: v1
 kind: Service
@@ -46,8 +71,8 @@ metadata:
     app.kubernetes.io/name: openjcontroltower
     app.kubernetes.io/component: backend
 spec:
-  # Exactly one replica: spec publication and dispatch are serialized in-process and the
-  # workspace volume is ReadWriteOnce. Recreate avoids two pods mounting it during a rollout.
+  # Exactly one replica: dispatch is serialized in-process. Recreate keeps two pods from
+  # dispatching at the same time during a rollout.
   replicas: 1
   strategy:
     type: Recreate
@@ -67,7 +92,8 @@ spec:
         prometheus.io/path: /actuator/prometheus
     spec:
       serviceAccountName: openjcontroltower-backend
-      automountServiceAccountToken: false
+      # Needed to create the Git Jobs (see the Role above).
+      automountServiceAccountToken: true
       terminationGracePeriodSeconds: 40
       securityContext:
         runAsNonRoot: true
@@ -131,14 +157,9 @@ spec:
                 # Give endpoints time to drop this pod before graceful shutdown starts.
                 command: ["sleep", "5"]
           volumeMounts:
-            - name: workspace
-              mountPath: /workspace/repos
             - name: tmp
               mountPath: /tmp
       volumes:
-        - name: workspace
-          persistentVolumeClaim:
-            claimName: openjcontroltower-workspace
         - name: tmp
           emptyDir:
             sizeLimit: 512Mi

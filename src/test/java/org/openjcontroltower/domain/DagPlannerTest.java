@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DagPlannerTest {
     private final DagPlanner planner = new DagPlanner();
     private static Spec spec(String id, String state, String... predecessors) {
-        return new Spec(id,"project",id,"slug",state,"text",List.of(predecessors),"001-demo/spec.md");
+        return new Spec(id,"project",id,"slug",state,"text",List.of(predecessors),"001-demo/spec.md",null);
     }
     @Test void ordersPrerequisitesBeforeDependentsAndComputesReadiness() {
         Graph g=planner.graph(List.of(spec("B","APPROVED","A"),spec("A","DONE"),spec("C","APPROVED","B")));

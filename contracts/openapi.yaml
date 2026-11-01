@@ -61,7 +61,73 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateProject'
+              $ref: '#/components/schemas/ProjectRequest'
+  /api/projects/connection-check:
+    post:
+      tags:
+      - Control Tower
+      operationId: checkProjectConnection
+      description: Smoke test of a Git remote without the git CLI. Sends one Git smart-HTTP discovery request
+        (GET <gitUrl>/info/refs?service=git-upload-pack) and does not follow redirects. Without a secret, the stored
+        secret of projectId is used, but only for the host it was entered for.
+      responses:
+        '200':
+          description: The check ran; see reachable and outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionCheckResult'
+        '400':
+          description: Invalid input, or a secret is needed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectionCheckRequest'
+  /api/projects/{id}:
+    put:
+      tags:
+      - Control Tower
+      operationId: updateProject
+      description: Updates a repository. An empty or missing secret keeps the stored secret.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectRequest'
   /api/templates:
     get:
       tags:
@@ -332,6 +398,8 @@ paths:
       tags:
       - Control Tower
       operationId: approveSpec
+      description: Pushes the spec files to a new branch named after the spec ID, from an isolated container
+        that is removed afterwards. Every file is a separate commit.
       responses:
         '200':
           description: Success
@@ -341,6 +409,12 @@ paths:
                 $ref: '#/components/schemas/Spec'
         '400':
           description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: The Git job failed (for example authentication, an existing branch or a timeout)
           content:
             application/json:
               schema:
@@ -501,13 +575,25 @@ components:
   schemas:
     Project:
       type: object
+      description: A Git repository. The secret is write-only and never returned; hasSecret tells whether one is stored.
       properties:
         id:
           type: string
         name:
           type: string
-        rootPath:
+        gitUrl:
           type: string
+          nullable: true
+          description: HTTPS clone URL. Null for projects registered before Git URLs existed.
+        defaultBranch:
+          type: string
+        credentialType:
+          $ref: '#/components/schemas/CredentialType'
+        gitUsername:
+          type: string
+          nullable: true
+        hasSecret:
+          type: boolean
         cockpitProjectId:
           type: string
         workflowId:
@@ -515,9 +601,58 @@ components:
       required:
       - id
       - name
-      - rootPath
+      - gitUrl
+      - defaultBranch
+      - credentialType
+      - gitUsername
+      - hasSecret
       - cockpitProjectId
       - workflowId
+    ConnectionCheckRequest:
+      type: object
+      properties:
+        gitUrl:
+          type: string
+        credentialType:
+          $ref: '#/components/schemas/CredentialType'
+        gitUsername:
+          type: string
+        secret:
+          type: string
+          writeOnly: true
+        projectId:
+          type: string
+          description: When editing; lets an empty secret fall back to the stored one.
+      required:
+      - gitUrl
+      - credentialType
+    ConnectionCheckResult:
+      type: object
+      properties:
+        reachable:
+          type: boolean
+        outcome:
+          type: string
+          enum:
+          - OK
+          - NOT_A_GIT_REPOSITORY
+          - AUTH_FAILED
+          - NOT_FOUND
+          - REDIRECTED
+          - UNEXPECTED_STATUS
+          - UNREACHABLE
+        message:
+          type: string
+      required:
+      - reachable
+      - outcome
+      - message
+    CredentialType:
+      type: string
+      enum:
+      - NONE
+      - HTTPS_TOKEN
+      - USERNAME_PASSWORD
     Question:
       type: object
       properties:
@@ -640,6 +775,10 @@ components:
             type: string
         specPath:
           type: string
+        branch:
+          type: string
+          nullable: true
+          description: Git branch the spec was pushed to on approval; null while DRAFT.
       required:
       - id
       - projectId
@@ -649,6 +788,7 @@ components:
       - body
       - dependsOn
       - specPath
+      - branch
     GraphNode:
       type: object
       properties:
@@ -713,20 +853,34 @@ components:
       required:
       - specId
       - result
-    CreateProject:
+    ProjectRequest:
       type: object
       properties:
         name:
           type: string
-        rootPath:
+        gitUrl:
           type: string
+          description: HTTPS clone URL without credentials.
+        defaultBranch:
+          type: string
+          description: Branch that spec branches start from. Defaults to main.
+        credentialType:
+          $ref: '#/components/schemas/CredentialType'
+        gitUsername:
+          type: string
+          description: Optional; tokens use "token" when empty.
+        secret:
+          type: string
+          writeOnly: true
+          description: Token or password. Required for a new authenticated repository; empty on update keeps the stored one.
         cockpitProjectId:
           type: string
         workflowId:
           type: string
       required:
       - name
-      - rootPath
+      - gitUrl
+      - credentialType
       - cockpitProjectId
       - workflowId
     CreateTemplate:

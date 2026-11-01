@@ -16,10 +16,10 @@ class DispatchServiceTest {
     private final CockpitQueueClient cockpit=mock(CockpitQueueClient.class);
     private final DecisionProvider decisions=mock(DecisionProvider.class);
     private final DispatchService service=new DispatchService(store,specs,cockpit,decisions);
-    private final Project project=new Project("p","Example","/repo","cockpit-1","wf-1");
+    private final Project project=new Project("p","Example","https://git.example.org/team/repo.git","main","NONE",null,false,"cockpit-1","wf-1");
     private final Spec a=spec("A"),b=spec("B"),c=spec("C"),notReady=spec("D");
 
-    private static Spec spec(String id) { return new Spec(id,"p",id,"slug","APPROVED","body",List.of(),id+"/spec.md"); }
+    private static Spec spec(String id) { return new Spec(id,"p",id,"slug","APPROVED","body",List.of(),id+"/spec.md",null); }
     private static GraphNode node(String id,boolean ready) { return new GraphNode(id,id,"APPROVED",List.of(),ready); }
 
     private void givenReadyGraph() {

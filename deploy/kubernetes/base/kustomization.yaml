@@ -14,7 +14,14 @@ configMapGenerator:
   # Non-secret backend settings. Overlays merge their environment-specific values into this map.
   - name: openjcontroltower-backend-config
     literals:
-      - REPOSITORIES_BASE=/workspace/repos
+      # Each approved spec is pushed from its own Job (restricted Pod Security Standard).
+      - GIT_RUNNER=kubernetes
+      - GIT_JOB_IMAGE=alpine/git:2.49.1
+      # Approval waits for the push: keep this below the ingress and frontend proxy timeouts (120s).
+      - GIT_JOB_TIMEOUT=90s
+      - GIT_BRANCH_PREFIX=spec
+      - GIT_AUTHOR_NAME=OpenJControlTower
+      - GIT_AUTHOR_EMAIL=openjcontroltower@localhost
       - AI_ENABLED=false
       - AI_MODEL=gpt-4o-mini
       - COCKPIT_ENABLED=false

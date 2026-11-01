@@ -68,7 +68,30 @@ management:
     readinessstate:
       enabled: true
 controltower:
-  repositories-base: ${REPOSITORIES_BASE:./dev-repositories}
+  git:
+    # Where each spec's isolated Git job runs: docker (through a Docker socket proxy) or kubernetes (a Job per spec).
+    runner: ${GIT_RUNNER:docker}
+    image: ${GIT_JOB_IMAGE:alpine/git:2.49.1}
+    # Upper bound for clone, commits and push; spec approval waits for it.
+    timeout: ${GIT_JOB_TIMEOUT:90s}
+    branch-prefix: ${GIT_BRANCH_PREFIX:spec}
+    author-name: ${GIT_AUTHOR_NAME:OpenJControlTower}
+    author-email: ${GIT_AUTHOR_EMAIL:openjcontroltower@localhost}
+    # Plain-HTTP Git URLs are for the local development Git server only.
+    allow-http: ${GIT_ALLOW_HTTP:false}
+    credentials:
+      # No defaults: Git secrets are encrypted with this key (AES-256-GCM) and unreadable without it.
+      secret: ${GIT_CREDENTIALS_SECRET}
+      salt: ${GIT_CREDENTIALS_SALT}
+    docker:
+      host: ${DOCKER_PROXY_URL:http://docker-proxy:2375}
+      # Network the job containers join; it must reach the Git host (and the dev Git server, if used).
+      network: ${GIT_JOB_DOCKER_NETWORK:}
+    kubernetes:
+      api-url: ${KUBERNETES_API_URL:https://kubernetes.default.svc}
+      service-account-dir: ${KUBERNETES_SERVICE_ACCOUNT_DIR:/var/run/secrets/kubernetes.io/serviceaccount}
+      # Empty: the backend's own namespace.
+      namespace: ${GIT_JOB_NAMESPACE:}
   http:
     connect-timeout: ${HTTP_CONNECT_TIMEOUT:5s}
     read-timeout: ${HTTP_READ_TIMEOUT:30s}

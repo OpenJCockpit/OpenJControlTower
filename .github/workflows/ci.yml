@@ -119,14 +119,13 @@ jobs:
         working-directory: deploy/kubernetes/overlays/first-run
         run: |
           cp secrets.env.example secrets.env
-          cp repositories.txt.example repositories.txt
           kubectl kustomize . > "$RUNNER_TEMP/first-run.yaml"
           grep -c '^kind:' "$RUNNER_TEMP/first-run.yaml"
       - name: Render with optional network policies enabled
         working-directory: deploy/kubernetes/overlays/first-run
         run: |
           sed -i 's|  # - ../../components/network-policies|  - ../../components/network-policies|' kustomization.yaml
-          test "$(kubectl kustomize . | grep -c '^kind: NetworkPolicy')" -eq 3
+          test "$(kubectl kustomize . | grep -c '^kind: NetworkPolicy')" -eq 4
 
   publish-images:
     name: Publish images to GHCR

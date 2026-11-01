@@ -26,11 +26,20 @@ class DataStoreTest {
         store=new DataStore(jdbc,JsonMapper.builder().build());
     }
     @Test void storesAndFindsProjects() {
-        store.saveProject(new Project("2","Zeta","/r/z","c2","w2"));
-        store.saveProject(new Project("1","Alpha","/r/a","c1","w1"));
+        Project zeta=new Project("2","Zeta","https://git.example.org/z.git","main","HTTPS_TOKEN","bot",false,"c2","w2");
+        store.saveProject(zeta,"cipher");
+        store.saveProject(new Project("1","Alpha","https://git.example.org/a.git","main","NONE",null,false,"c1","w1"),null);
         assertEquals(List.of("Alpha","Zeta"),store.projects().stream().map(Project::name).toList());
-        assertEquals(new Project("2","Zeta","/r/z","c2","w2"),store.project("2"));
+        // The secret is reported only as present, never returned.
+        assertEquals(new Project("2","Zeta","https://git.example.org/z.git","main","HTTPS_TOKEN","bot",true,"c2","w2"),store.project("2"));
+        assertEquals("cipher",store.encryptedSecret("2"));
+        assertNull(store.encryptedSecret("1"));
+        assertFalse(store.project("1").hasSecret());
+        store.updateProject(new Project("2","Zeta 2","https://git.example.org/z2.git","develop","NONE",null,false,"c3","w3"),null);
+        assertEquals(new Project("2","Zeta 2","https://git.example.org/z2.git","develop","NONE",null,false,"c3","w3"),store.project("2"));
+        assertNull(store.encryptedSecret("2"));
         assertEquals("Project not found",assertThrows(IllegalArgumentException.class,()->store.project("x")).getMessage());
+        assertThrows(IllegalArgumentException.class,()->store.encryptedSecret("x"));
     }
     @Test void storesTemplatesWithQuestions() {
         Template template=new Template("t","Discovery","PROJECT",List.of(new Question("goal","Goal?",true,2,"Measurable")));
@@ -57,11 +66,15 @@ class DataStoreTest {
         assertThrows(IllegalArgumentException.class,()->store.interview("missing"));
     }
     @Test void storesSpecsAndStatusChanges() {
-        Spec spec=new Spec("SPEC-1","p","Title","title","DRAFT","# Body",List.of("SPEC-0"),"001-title/spec.md");
+        Spec spec=new Spec("SPEC-1","p","Title","title","DRAFT","# Body",List.of("SPEC-0"),"001-title/spec.md",null);
         store.saveSpec(spec);
+        assertNull(store.spec("SPEC-1").branch());
+        store.setSpecPublished("SPEC-1","APPROVED","spec/SPEC-1","abc123");
         store.setSpecStatus("SPEC-1","APPROVED");
         Spec stored=store.spec("SPEC-1");
         assertEquals("APPROVED",stored.status());
+        assertEquals("spec/SPEC-1",stored.branch());
+        assertEquals("abc123",jdbc.queryForObject("SELECT commit_sha FROM specs WHERE id='SPEC-1'",String.class));
         assertEquals(List.of("SPEC-0"),stored.dependsOn());
         assertEquals(List.of(stored),store.specs("p"));
         assertThrows(IllegalArgumentException.class,()->store.spec("missing"));

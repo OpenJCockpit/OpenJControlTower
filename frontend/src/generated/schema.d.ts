@@ -20,6 +20,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/connection-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Smoke test of a Git remote without the git CLI. Sends one Git smart-HTTP discovery request (GET <gitUrl>/info/refs?service=git-upload-pack) and does not follow redirects. Without a secret, the stored secret of projectId is used, but only for the host it was entered for. */
+        post: operations["checkProjectConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Updates a repository. An empty or missing secret keeps the stored secret. */
+        put: operations["updateProject"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/templates": {
         parameters: {
             query?: never;
@@ -157,6 +191,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Pushes the spec files to a new branch named after the spec ID, from an isolated container that is removed afterwards. Every file is a separate commit. */
         post: operations["approveSpec"];
         delete?: never;
         options?: never;
@@ -232,13 +267,35 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A Git repository. The secret is write-only and never returned; hasSecret tells whether one is stored. */
         Project: {
             id: string;
             name: string;
-            rootPath: string;
+            /** @description HTTPS clone URL. Null for projects registered before Git URLs existed. */
+            gitUrl: string | null;
+            defaultBranch: string;
+            credentialType: components["schemas"]["CredentialType"];
+            gitUsername: string | null;
+            hasSecret: boolean;
             cockpitProjectId: string;
             workflowId: string;
         };
+        ConnectionCheckRequest: {
+            gitUrl: string;
+            credentialType: components["schemas"]["CredentialType"];
+            gitUsername?: string;
+            secret?: string;
+            /** @description When editing; lets an empty secret fall back to the stored one. */
+            projectId?: string;
+        };
+        ConnectionCheckResult: {
+            reachable: boolean;
+            /** @enum {string} */
+            outcome: "OK" | "NOT_A_GIT_REPOSITORY" | "AUTH_FAILED" | "NOT_FOUND" | "REDIRECTED" | "UNEXPECTED_STATUS" | "UNREACHABLE";
+            message: string;
+        };
+        /** @enum {string} */
+        CredentialType: "NONE" | "HTTPS_TOKEN" | "USERNAME_PASSWORD";
         Question: {
             id: string;
             text: string;
@@ -282,6 +339,8 @@ export interface components {
             body: string;
             dependsOn: string[];
             specPath: string;
+            /** @description Git branch the spec was pushed to on approval; null while DRAFT. */
+            branch: string | null;
         };
         GraphNode: {
             id: string;
@@ -305,9 +364,17 @@ export interface components {
             specId: string;
             result: string;
         };
-        CreateProject: {
+        ProjectRequest: {
             name: string;
-            rootPath: string;
+            /** @description HTTPS clone URL without credentials. */
+            gitUrl: string;
+            /** @description Branch that spec branches start from. Defaults to main. */
+            defaultBranch?: string;
+            credentialType: components["schemas"]["CredentialType"];
+            /** @description Optional; tokens use "token" when empty. */
+            gitUsername?: string;
+            /** @description Token or password. Required for a new authenticated repository; empty on update keeps the stored one. */
+            secret?: string;
             cockpitProjectId: string;
             workflowId: string;
         };
@@ -405,12 +472,108 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateProject"];
+                "application/json": components["schemas"]["ProjectRequest"];
             };
         };
         responses: {
             /** @description Success */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Invalid input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    checkProjectConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description The check ran; see reachable and outcome */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionCheckResult"];
+                };
+            };
+            /** @description Invalid input, or a secret is needed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -900,6 +1063,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The Git job failed (for example authentication, an existing branch or a timeout) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
             };
         };
     };

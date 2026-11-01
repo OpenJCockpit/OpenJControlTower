@@ -26,7 +26,7 @@ test('a viewer can read but not register repositories', async ({ page }) => {
   await openSection(page, 'Repositories');
   await expect(page.getByText('No repositories connected.')).toBeVisible();
   await page.getByLabel('Project name').fill('Viewer attempt');
-  await page.getByLabel('Absolute repository path').fill('/workspace/repos/e2e-repo');
+  await page.getByLabel('Git repository URL').fill('https://git.example.org/team/repo.git');
   await page.getByLabel('OpenJCockpit project ID').fill('cockpit');
   await page.getByLabel('OpenJCockpit workflow ID').fill('wf');
   await page.getByRole('button', { name: 'Connect repository' }).click();
@@ -40,6 +40,7 @@ test('signing out ends the session', async ({ page }) => {
   // Depending on the Keycloak version the user may have to confirm the logout.
   const confirm = page.locator('#kc-logout');
   if (await confirm.isVisible({ timeout: 3_000 }).catch(() => false)) await confirm.click();
-  await page.goto('/');
+  // The app redirects to Keycloak at once, so do not wait for its load event.
+  await page.goto('/', { waitUntil: 'commit' });
   await expect(page.locator('#kc-login')).toBeVisible();
 });

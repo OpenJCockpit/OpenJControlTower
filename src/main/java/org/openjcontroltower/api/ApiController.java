@@ -5,10 +5,11 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.openjcontroltower.application.DispatchService;
 import org.openjcontroltower.application.InterviewService;
+import org.openjcontroltower.application.ProjectService;
 import org.openjcontroltower.application.SpecService;
 import org.openjcontroltower.domain.Models.*;
 import org.openjcontroltower.infrastructure.DataStore;
-import org.openjcontroltower.infrastructure.FileSpecPublisher;
+import org.openjcontroltower.infrastructure.GitConnectionChecker;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import java.util.*;
@@ -17,16 +18,25 @@ import java.util.*;
 @RequestMapping("/api")
 public class ApiController {
     private final DataStore db;
-    private final FileSpecPublisher files;
+    private final ProjectService projects;
     private final InterviewService interviews;
     private final SpecService specs;
     private final DispatchService dispatch;
-    public ApiController(DataStore db,FileSpecPublisher files,InterviewService interviews,
+    public ApiController(DataStore db,ProjectService projects,InterviewService interviews,
         SpecService specs,DispatchService dispatch) {
-        this.db=db;this.files=files;this.interviews=interviews;this.specs=specs;this.dispatch=dispatch;
+        this.db=db;this.projects=projects;this.interviews=interviews;this.specs=specs;this.dispatch=dispatch;
     }
-    public record NewProject(@NotBlank String name,@NotBlank String rootPath,
-                             @NotBlank String cockpitProjectId,@NotBlank String workflowId) {}
+    /** {@code secret} is write-only: it is never returned, and leaving it empty on update keeps the stored one. */
+    public record ProjectRequest(@NotBlank String name,@NotBlank String gitUrl,String defaultBranch,
+                                 @NotBlank String credentialType,String gitUsername,String secret,
+                                 @NotBlank String cockpitProjectId,@NotBlank String workflowId) {
+        ProjectService.Input input() {
+            return new ProjectService.Input(name,gitUrl,defaultBranch,credentialType,gitUsername,secret,cockpitProjectId,workflowId);
+        }
+    }
+    /** {@code projectId} is optional: when editing, it lets an empty secret fall back to the stored one. */
+    public record ConnectionCheckRequest(@NotBlank String gitUrl,@NotBlank String credentialType,String gitUsername,
+                                         String secret,String projectId) {}
     public record NewTemplate(@NotBlank String name,@NotBlank String kind,@NotNull List<Question> questions) {}
     public record NewInterview(@NotBlank String projectId,@NotBlank String templateId,String featureRequest) {}
     public record NewSpecTemplate(@NotBlank String name,@NotBlank String content) {}
@@ -36,11 +46,12 @@ public class ApiController {
 
     @GetMapping("/projects") public List<Project> projects() { return db.projects(); }
     @PostMapping("/projects") @ResponseStatus(HttpStatus.CREATED)
-    public Project createProject(@Valid @RequestBody NewProject input) {
-        String path=files.validateRoot(input.rootPath()).toString();
-        Project project=new Project(UUID.randomUUID().toString(),input.name().strip(),path,
-            input.cockpitProjectId().strip(),input.workflowId().strip());
-        db.saveProject(project);return project;
+    public Project createProject(@Valid @RequestBody ProjectRequest input) { return projects.create(input.input()); }
+    @PutMapping("/projects/{id}")
+    public Project updateProject(@PathVariable String id,@Valid @RequestBody ProjectRequest input) { return projects.update(id,input.input()); }
+    @PostMapping("/projects/connection-check")
+    public GitConnectionChecker.Result checkConnection(@Valid @RequestBody ConnectionCheckRequest input) {
+        return projects.checkConnection(input.projectId(),input.gitUrl(),input.credentialType(),input.gitUsername(),input.secret());
     }
     @GetMapping("/templates") public List<Template> templates() { return db.templates(); }
     @PostMapping("/templates") @ResponseStatus(HttpStatus.CREATED)

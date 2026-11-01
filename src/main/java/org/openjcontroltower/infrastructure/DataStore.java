@@ -29,13 +29,23 @@ public class DataStore {
         if (records.isEmpty()) throw new IllegalArgumentException(type + " not found");
         return records.getFirst();
     }
-    public void saveProject(Project p) {
-        db.update("INSERT INTO projects(id,name,root_path,cockpit_project_id,workflow_id) VALUES(?,?,?,?,?)",
-            p.id(), p.name(), p.rootPath(), p.cockpitProjectId(), p.workflowId());
+    /** Stores a new project; {@code encryptedSecret} is ciphertext or null. */
+    public void saveProject(Project p, String encryptedSecret) {
+        db.update("INSERT INTO projects(id,name,git_url,default_branch,credential_type,git_username,encrypted_secret,cockpit_project_id,workflow_id) VALUES(?,?,?,?,?,?,?,?,?)",
+            p.id(), p.name(), p.gitUrl(), p.defaultBranch(), p.credentialType(), p.gitUsername(), encryptedSecret, p.cockpitProjectId(), p.workflowId());
+    }
+    public void updateProject(Project p, String encryptedSecret) {
+        db.update("UPDATE projects SET name=?,git_url=?,default_branch=?,credential_type=?,git_username=?,encrypted_secret=?,cockpit_project_id=?,workflow_id=? WHERE id=?",
+            p.name(), p.gitUrl(), p.defaultBranch(), p.credentialType(), p.gitUsername(), encryptedSecret, p.cockpitProjectId(), p.workflowId(), p.id());
     }
     public List<Project> projects() {
         return db.query("SELECT * FROM projects ORDER BY name", (r,n) -> new Project(r.getString("id"),
-            r.getString("name"), r.getString("root_path"), r.getString("cockpit_project_id"), r.getString("workflow_id")));
+            r.getString("name"), r.getString("git_url"), r.getString("default_branch"), r.getString("credential_type"),
+            r.getString("git_username"), r.getString("encrypted_secret") != null, r.getString("cockpit_project_id"), r.getString("workflow_id")));
+    }
+    /** The stored ciphertext of a project's Git secret, or null when none is set. */
+    public String encryptedSecret(String projectId) {
+        return single(db.query("SELECT encrypted_secret FROM projects WHERE id=?",(r,n)->Optional.ofNullable(r.getString(1)),projectId),"Project").orElse(null);
     }
     public Project project(String id) { return single(projects().stream().filter(p -> p.id().equals(id)).toList(), "Project"); }
     public void saveTemplate(Template t) {
@@ -80,11 +90,14 @@ public class DataStore {
             s.id(),s.projectId(),s.title(),s.slug(),s.status(),s.body(),json(s.dependsOn()),s.specPath());
     }
     public void setSpecStatus(String id, String state) { db.update("UPDATE specs SET status=? WHERE id=?",state,id); }
+    public void setSpecPublished(String id, String state, String branch, String commit) {
+        db.update("UPDATE specs SET status=?,branch=?,commit_sha=? WHERE id=?",state,branch,commit,id);
+    }
     public List<Spec> specs(String projectId) {
         return db.query("SELECT * FROM specs WHERE project_id=? ORDER BY id",(r,n)->new Spec(r.getString("id"),
             r.getString("project_id"),r.getString("title"),r.getString("slug"),r.getString("status"),
             r.getString("body"),read(r.getString("dependencies_json"),new TypeReference<List<String>>(){}),
-            r.getString("spec_path")),projectId);
+            r.getString("spec_path"),r.getString("branch")),projectId);
     }
     public Spec spec(String id) {
         List<String> projects = db.query("SELECT project_id FROM specs WHERE id=?",(r,n)->r.getString(1),id);

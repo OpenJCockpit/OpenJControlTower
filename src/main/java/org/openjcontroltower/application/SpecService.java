@@ -4,7 +4,7 @@ import org.openjcontroltower.domain.DagPlanner;
 import org.openjcontroltower.domain.SpecNaming;
 import org.openjcontroltower.domain.Models.*;
 import org.openjcontroltower.infrastructure.DataStore;
-import org.openjcontroltower.infrastructure.FileSpecPublisher;
+import org.openjcontroltower.infrastructure.GitSpecPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
@@ -13,9 +13,9 @@ import java.util.*;
 public class SpecService {
     private final DataStore store;
     private final AiAssistant ai;
-    private final FileSpecPublisher publisher;
+    private final GitSpecPublisher publisher;
     private final DagPlanner graph = new DagPlanner();
-    public SpecService(DataStore store,AiAssistant ai,FileSpecPublisher publisher) {
+    public SpecService(DataStore store,AiAssistant ai,GitSpecPublisher publisher) {
         this.store=store;this.ai=ai;this.publisher=publisher;
     }
     @Transactional
@@ -56,7 +56,7 @@ public class SpecService {
             String slug=SpecNaming.slug(p.title());
             String path=String.format("%03d-%s/spec.md",current.size()+i+1,slug);
             String body=formatMarkdown(template.content(),ids.get(i),project,p,dependencies);
-            result.add(new Spec(ids.get(i),project.id(),p.title(),slug,"DRAFT",body,List.copyOf(dependencies),path));
+            result.add(new Spec(ids.get(i),project.id(),p.title(),slug,"DRAFT",body,List.copyOf(dependencies),path,null));
         }
         graph.graph(concat(current,result));
         result.forEach(store::saveSpec);
@@ -81,8 +81,9 @@ public class SpecService {
         Spec s=store.spec(specId);
         if (!s.status().equals("DRAFT")) throw new IllegalArgumentException("Only DRAFT can be approved");
         graph.graph(store.specs(s.projectId()));
-        publisher.publish(store.project(s.projectId()),s);
-        store.setSpecStatus(specId,"APPROVED");
+        Project project=store.project(s.projectId());
+        GitSpecPublisher.Published published=publisher.publish(project,store.encryptedSecret(project.id()),s);
+        store.setSpecPublished(specId,"APPROVED",published.branch(),published.commit());
         return store.spec(specId);
     }
     public Spec markDone(String specId) {

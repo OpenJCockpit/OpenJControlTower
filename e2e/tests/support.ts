@@ -17,7 +17,7 @@ export async function signIn(page: Page, user: { username: string; password: str
 }
 
 export async function openSection(page: Page, name: string) {
-  await page.locator('nav').getByRole('button', { name }).click();
+  await page.locator('nav').getByRole('link', { name }).click();
   await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
 }
 

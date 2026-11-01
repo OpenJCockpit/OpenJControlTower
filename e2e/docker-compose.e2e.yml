@@ -26,10 +26,23 @@ services:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
       interval: 3s
       retries: 60
+  # Remote the tests register; spec branches are pushed here by disposable job containers.
+  git-server:
+    build: ../infrastructure/git-server
+    environment:
+      GIT_SERVER_USER: e2e-git
+      GIT_SERVER_PASSWORD: e2e-only-git
+      GIT_SERVER_REPOSITORIES: e2e-repo
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.1
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
   backend:
     build: ..
-    # Initialise the Git working copy the tests register, then start the application.
-    entrypoint: ["sh", "-c", "[ -d /workspace/repos/e2e-repo/.git ] || git init -q /workspace/repos/e2e-repo; exec java -jar /app/app.jar"]
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/controltower
       DB_USER: controltower
@@ -37,12 +50,19 @@ services:
       # The browser reaches Keycloak as http://keycloak:8080, so that is the token issuer.
       KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/openjcontroltower
       KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/openjcontroltower/protocol/openid-connect/certs
-      REPOSITORIES_BASE: /workspace/repos
+      GIT_RUNNER: docker
+      DOCKER_PROXY_URL: http://docker-proxy:2375
+      GIT_JOB_DOCKER_NETWORK: ojct-e2e
+      GIT_ALLOW_HTTP: "true"
+      GIT_CREDENTIALS_SECRET: e2e-only-credentials-key-of-32-chars
+      GIT_CREDENTIALS_SALT: 6e2e6e2e6e2e6e2e
       AI_ENABLED: "false"
       COCKPIT_ENABLED: "false"
-    volumes:
-      - workspace:/workspace/repos
     depends_on:
+      docker-proxy:
+        condition: service_started
+      git-server:
+        condition: service_started
       postgres:
         condition: service_healthy
       keycloak:
@@ -69,9 +89,9 @@ services:
       BASE_URL: http://frontend:8080
       CI: ${CI:-}
     volumes:
-      # Read-only view of the workspace, to assert which files the application wrote.
-      - workspace:/workspace/repos:ro
       - ./playwright-report:/e2e/playwright-report
       - ./test-results:/e2e/test-results
-volumes:
-  workspace:
+networks:
+  # Fixed name: Git job containers join it by name (GIT_JOB_DOCKER_NETWORK).
+  default:
+    name: ojct-e2e

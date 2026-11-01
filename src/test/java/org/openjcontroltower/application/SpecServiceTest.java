@@ -3,7 +3,7 @@ package org.openjcontroltower.application;
 import org.junit.jupiter.api.Test;
 import org.openjcontroltower.domain.Models.*;
 import org.openjcontroltower.infrastructure.DataStore;
-import org.openjcontroltower.infrastructure.FileSpecPublisher;
+import org.openjcontroltower.infrastructure.GitSpecPublisher;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -14,9 +14,9 @@ import static org.mockito.Mockito.*;
 class SpecServiceTest {
     private final DataStore store=mock(DataStore.class);
     private final AiAssistant ai=mock(AiAssistant.class);
-    private final FileSpecPublisher publisher=mock(FileSpecPublisher.class);
+    private final GitSpecPublisher publisher=mock(GitSpecPublisher.class);
     private final SpecService service=new SpecService(store,ai,publisher);
-    private final Project project=new Project("p","Example","/repo","c","wf-1");
+    private final Project project=new Project("p","Example","https://git.example.org/team/repo.git","main","NONE",null,false,"c","wf-1");
     private final SpecTemplate defaultTemplate=new SpecTemplate("st","Default",
         "{{SPEC_ID}}|{{WORKFLOW_ID}}|{{TITLE}}|{{SUMMARY}}|{{DEPENDENCIES}}|{{ACCEPTANCE_CRITERIA}}",true);
     private final Interview complete=new Interview("i","p","t","PROJECT","Project discovery","COMPLETE",
@@ -34,7 +34,7 @@ class SpecServiceTest {
         when(store.specTemplates()).thenReturn(List.of(new SpecTemplate("other","Other","x",false),defaultTemplate));
     }
     private static Spec spec(String id,String status,String... deps) {
-        return new Spec(id,"p",id,"slug",status,"body",List.of(deps),"001-x/spec.md");
+        return new Spec(id,"p",id,"slug",status,"body",List.of(deps),"001-x/spec.md",null);
     }
 
     @Test void generatesFormattedSpecsWithDependenciesAndMarksInterviewGenerated() {
@@ -111,14 +111,15 @@ class SpecServiceTest {
         assertEquals(List.of("A","B"),graph.topologicalOrder());
         assertTrue(graph.nodes().get(1).ready());
     }
-    @Test void approvesDraftByPublishingFiles() {
+    @Test void approvesDraftByPushingItsOwnBranch() {
         Spec draft=spec("A","DRAFT");
         when(store.spec("A")).thenReturn(draft,spec("A","APPROVED"));
         when(store.specs("p")).thenReturn(List.of(draft));
         when(store.project("p")).thenReturn(project);
+        when(store.encryptedSecret("p")).thenReturn("cipher");
+        when(publisher.publish(project,"cipher",draft)).thenReturn(new GitSpecPublisher.Published("spec/A","abc123"));
         assertEquals("APPROVED",service.approve("A").status());
-        verify(publisher).publish(project,draft);
-        verify(store).setSpecStatus("A","APPROVED");
+        verify(store).setSpecPublished("A","APPROVED","spec/A","abc123");
     }
     @Test void rejectsApprovingNonDraft() {
         when(store.spec("A")).thenReturn(spec("A","APPROVED"));

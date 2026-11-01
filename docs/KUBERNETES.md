@@ -11,7 +11,8 @@ flowchart LR
   I --> F[frontend x2<br/>nginx, static SPA]
   F -->|/api| B[backend x1<br/>Spring Boot]
   B --> P[(PostgreSQL)]
-  B --> W[(workspace PVC<br/>/workspace/repos)]
+  B -->|creates, waits, deletes| J[Git Job per spec<br/>clone, commit, push]
+  J -->|HTTPS| G[(Git host)]
   B -->|JWKS| K
   B -->|client credentials| C[OpenJCockpit]
 ```
@@ -19,21 +20,22 @@ flowchart LR
 | Resource | Notes |
 |---|---|
 | `Deployment/openjcontroltower-backend` | **1 replica**, `Recreate` strategy, UID 10001, read-only root FS, startup/liveness/readiness probes, Prometheus annotations |
-| `PersistentVolumeClaim/openjcontroltower-workspace` | 5 Gi `ReadWriteOnce` volume holding the Git working copies that specs are written into |
+| `Role` + `RoleBinding/openjcontroltower-git-jobs` | Lets the backend create, read and delete Jobs, create Secrets (never read them), list pods and read pod logs, in its own namespace only |
+| `Job/ojct-git-<id>` | Created per approved spec, deleted when done: clones the repository, creates the branch `spec/<spec id>`, commits each file separately and pushes. Its inputs, including the Git credentials, are in a Secret owned by the Job, so Kubernetes deletes both together. `activeDeadlineSeconds` and `ttlSecondsAfterFinished` clean up after a backend crash |
 | `Deployment/openjcontroltower-frontend` | 2 replicas, unprivileged nginx (UID 101), PodDisruptionBudget, runtime `config.js` and nginx config from ConfigMaps |
 | `Ingress/openjcontroltower` | Single host; the frontend proxies `/api` to the backend Service |
 | `StatefulSet/openjcontroltower-postgres` | *Optional component* `bundled-postgres`: single instance, 10 Gi, for a first run only |
-| init container `workspace-seed` | *Optional component*: clones the repositories listed in a Secret, never overwrites existing ones |
-| `NetworkPolicy` ×3 | *Optional component* `network-policies` |
+| `NetworkPolicy` ×4 | *Optional component* `network-policies` |
 
-**Why only one backend replica?** Spec publication and queue dispatch are serialized inside the JVM, and the workspace is a `ReadWriteOnce` volume. Running two backends could interleave writes to `specs/_index.md` or dispatch the same spec twice. The `Recreate` strategy means a short downtime during upgrades (typically under 30 seconds). The frontend scales freely.
+**Why only one backend replica?** Queue dispatch is serialized inside the JVM. Running two backends could dispatch the same spec twice. The `Recreate` strategy means a short downtime during upgrades (typically under 30 seconds). The backend keeps no files, and the frontend scales freely.
 
-All workloads satisfy the **`restricted` Pod Security Standard**: the namespace in the overlay enforces it.
+All workloads, including the Git Jobs, satisfy the **`restricted` Pod Security Standard**: the namespace in the overlay enforces it.
 
 ## Prerequisites
 
 - Kubernetes **1.27+** and `kubectl` **1.27+**. Kustomize components are built into `kubectl`, so no Helm is needed.
-- A default **StorageClass** that provisions `ReadWriteOnce` volumes.
+- A default **StorageClass**, only if you use the `bundled-postgres` component.
+- **Egress** to your Git host over HTTPS, from the Git Job pods and from the backend (for **Check connection**), and permission for the cluster to pull `alpine/git` (set `GIT_JOB_IMAGE` to a mirrored copy otherwise).
 - An **Ingress controller**. The overlay assumes `ingressClassName: nginx`; change it if your cluster uses another one. Optional: [cert-manager](https://cert-manager.io/) for TLS.
 - A **Keycloak** realm that you control (Keycloak is deliberately not part of these manifests).
 - The two container images in a registry the cluster can pull from.
@@ -87,24 +89,24 @@ Copy the overlay, so that your environment's values live outside the shared exam
 cp -R deploy/kubernetes/overlays/first-run deploy/kubernetes/overlays/my-cluster
 cd deploy/kubernetes/overlays/my-cluster
 cp secrets.env.example secrets.env
-cp repositories.txt.example repositories.txt
 ```
 
-`secrets.env` and `repositories.txt` are git-ignored. Edit every line marked `CHANGE ME`:
+`secrets.env` is git-ignored. Edit every line marked `CHANGE ME`:
 
 | File | Setting | Value |
 |---|---|---|
 | `kustomization.yaml` | `images[].newName` / `newTag` | Your registry, and a version tag (not `main`) once you go beyond a first run |
 | `kustomization.yaml` | `KEYCLOAK_ISSUER_URI`, `KEYCLOAK_JWKS_URI` | From step 2 |
 | `kustomization.yaml` | `COCKPIT_*` | OpenJCockpit URL and token endpoint; keep `COCKPIT_ENABLED=false` at first |
+| `kustomization.yaml` | `GIT_AUTHOR_EMAIL` | E-mail address on the commits of spec branches |
 | `kustomization.yaml` | Ingress patch | `ingressClassName`, host, TLS host; uncomment the cert-manager annotation if you use it |
 | `config.js` | `keycloakUrl`, `keycloakRealm`, `keycloakClientId` | Keycloak base URL (without `/realms/...`), realm, browser client ID |
 | `secrets.env` | `DB_PASSWORD` | A long random value (`openssl rand -base64 32`) |
 | `secrets.env` | `COCKPIT_CLIENT_SECRET` | Secret of the service client (any value while dispatch is disabled) |
 | `secrets.env` | `OPENAI_API_KEY` | Keep `unused-in-demo-mode` while `AI_ENABLED=false` |
-| `repositories.txt` | `<name> <clone-url>` lines | Repositories to clone into `/workspace/repos/<name>` |
+| `secrets.env` | `GIT_CREDENTIALS_SECRET`, `GIT_CREDENTIALS_SALT` | Key material that encrypts the Git tokens stored per repository: `openssl rand -base64 48` and `openssl rand -hex 16`. The backend refuses to start without them. Keep them safe: changing or losing them makes every stored token unreadable |
 
-For private repositories, embed a deploy token with **write** access in the clone URL, so the same remote can be used to push generated specs. For example: `https://x-access-token:<token>@github.com/org/repo.git`. The URL is stored in a Secret and never logged.
+Repositories and their Git credentials are configured in the web interface (step 4), not in these files.
 
 **Database:** the `bundled-postgres` component is fine for a first run. For anything you would mind losing, remove it from `components:` and add your managed PostgreSQL connection to the backend ConfigMap:
 
@@ -121,6 +123,7 @@ Optional settings you can merge into `openjcontroltower-backend-config`:
 - `DECISION_PROVIDER=laya|jev`. Also put `DECISION_API_KEY` in `secrets.env`.
 - `API_DOCS_ENABLED=true` to expose Swagger UI.
 - `HTTP_CONNECT_TIMEOUT` and `HTTP_READ_TIMEOUT`.
+- `GIT_JOB_TIMEOUT` (default 90s), `GIT_JOB_IMAGE`, `GIT_BRANCH_PREFIX` (default `spec`) and `GIT_AUTHOR_NAME`. Approval waits for the push, so keep `GIT_JOB_TIMEOUT` below the proxy timeouts (120 s in the frontend nginx and the Ingress annotation).
 - `CONTROLTOWER_EDITOR_ROLE` and `CONTROLTOWER_ADMIN_ROLE`, if your realm uses other role names.
 
 ## 4. Deploy and verify
@@ -132,36 +135,34 @@ kubectl apply -k deploy/kubernetes/overlays/my-cluster
 kubectl -n openjcontroltower rollout status statefulset/openjcontroltower-postgres
 kubectl -n openjcontroltower rollout status deploy/openjcontroltower-backend --timeout=5m
 kubectl -n openjcontroltower rollout status deploy/openjcontroltower-frontend
-kubectl -n openjcontroltower get pods,pvc,ingress
+kubectl -n openjcontroltower get pods,ingress
 ```
 
 Checks:
 
 ```bash
-# Repositories cloned by the init container
-kubectl -n openjcontroltower logs deploy/openjcontroltower-backend -c workspace-seed
 # Flyway migration and startup
 kubectl -n openjcontroltower logs deploy/openjcontroltower-backend | grep -E 'migration|Started'
 # The API answers 401 without a token, through the frontend proxy
 curl -s -o /dev/null -w '%{http_code}\n' https://controltower.example.org/api/projects
 ```
 
-Then open `https://controltower.example.org`, sign in with a user that has `controltower-editor`, and register the repository as **`/workspace/repos/<name>`**, using the name from `repositories.txt`.
+Then open `https://controltower.example.org`, sign in with a user that has `controltower-editor`, and connect a repository under **Repositories**: its HTTPS clone URL, base branch and credentials.
 
-## 5. Commit and push generated specs
+## 5. Spec branches
 
-Approved specs are written to `/workspace/repos/<name>/specs/` on the volume. Nothing is committed or pushed automatically (roadmap item CT-0001). The backend image ships `git`, so you can do this from the pod:
+Approving a spec starts a Job that clones the base branch, creates `spec/<spec id>`, commits `spec.md`, `plan.md`, `tasks.md`, `review.md` and the `specs/_index.md` update as five separate commits, and pushes. The approval returns once the push is done, and the spec shows its branch. Then the Job and its Secret are deleted.
+
+**Credentials:** use a token with write access to the repository contents, for example a GitHub fine-grained token or a GitLab project access token. The token is encrypted in the database (AES-256-GCM), is never returned by the API, and only reaches the Job through its Secret. Leave the username empty for tokens: `token` is used.
+
+Watch a running job:
 
 ```bash
-NS=openjcontroltower; REPO=/workspace/repos/example
-kubectl -n $NS exec deploy/openjcontroltower-backend -- git -C $REPO status --short
-kubectl -n $NS exec deploy/openjcontroltower-backend -- git -C $REPO \
-  -c user.name="Control Tower" -c user.email="controltower@example.org" \
-  commit -m "Add approved specs" -- specs
-kubectl -n $NS exec deploy/openjcontroltower-backend -- git -C $REPO push
+kubectl -n openjcontroltower get jobs,pods -l app.kubernetes.io/component=git-job
+kubectl -n openjcontroltower logs -l app.kubernetes.io/component=git-job --tail=50
 ```
 
-Only after the push is visible to OpenJCockpit should you confirm *repository published* in the queue screen and dispatch.
+OpenJCockpit reads specs from the repository's branch, not from spec branches. **Merge each spec branch** (for example through a pull request) before you confirm the merge in the queue screen and dispatch.
 
 ## 6. Enable OpenJCockpit dispatch
 
@@ -204,13 +205,14 @@ kubectl -n openjcontroltower exec -i statefulset/openjcontroltower-postgres -- \
   pg_restore -U controltower -d controltower --clean --if-exists < controltower-YYYY-MM-DD.dump
 ```
 
-The workspace volume holds Git working copies. Pushing specs to their remote, as in step 5, is the primary backup. Volume snapshots (CSI `VolumeSnapshot`) are a useful extra. Run a restore test at least once.
+Spec files live in their Git repositories, so the database is the only state to back up. Keep `GIT_CREDENTIALS_SECRET` and `GIT_CREDENTIALS_SALT` with the backup: without them the stored Git tokens cannot be decrypted. Run a restore test at least once.
 
 ### Resource sizing
 
 | Container | Requests | Memory limit |
 |---|---|---|
 | backend | 250m CPU / 768 Mi | 1 Gi (JVM heap = 75% of it) |
+| Git job | 100m CPU / 128 Mi | 512 Mi |
 | frontend | 25m CPU / 32 Mi | 128 Mi |
 | postgres | 100m CPU / 256 Mi | 512 Mi |
 
@@ -220,14 +222,19 @@ No CPU limits are set, to avoid JVM throttling. Adjust these in a patch after wa
 
 | Symptom | Likely cause / fix |
 |---|---|
-| Backend `Init:CrashLoopBackOff` | `workspace-seed` cannot clone. Run `kubectl logs ... -c workspace-seed`, then check the URL, token and egress to the Git host. |
-| PVC stays `Pending` | No default StorageClass. Set `storageClassName` with a patch. |
+| Backend `CrashLoopBackOff` with `GIT_CREDENTIALS_SECRET must be at least 32 characters` or `GIT_CREDENTIALS_SALT ...` | Set both in `secrets.env`; the salt must be hexadecimal. |
+| **Check connection** says `Could not connect to <host>` | The backend pod cannot reach the Git host: DNS, egress policy or proxy. |
+| Approval fails with `Authentication failed` | Wrong token or username, or the token lacks write access. Edit the repository and enter the token again. |
+| Approval fails with `Branch spec/... already exists on the remote` | An earlier attempt already pushed it. Delete the remote branch, or keep it and treat the spec as published. |
+| Approval fails with `did not finish within 90 seconds` | The Job pod could not start (image pull, Pod Security, quota) or the Git host is unreachable. Run `kubectl describe` on the Job's pod. |
+| Approval fails with `403` from the Kubernetes API | The Role or RoleBinding is missing, or the backend pod has no service account token (`automountServiceAccountToken: true`). |
+| PVC stays `Pending` | No default StorageClass for the bundled PostgreSQL. Set `storageClassName` with a patch. |
 | Backend not ready, readiness `DOWN` | Database unreachable or wrong credentials. Check `DB_URL` and `DB_PASSWORD`, and the postgres pod. |
 | Every API call returns `401` after login | `KEYCLOAK_ISSUER_URI` differs from the token's `iss` claim (scheme, host and realm must match exactly), or the JWKS URI is unreachable from the pod. |
 | API returns `403` on writes | The user lacks the `controltower-editor` realm role, or the role names differ. Set `CONTROLTOWER_EDITOR_ROLE`. |
 | Login page loops or "Keycloak login error" | `config.js` values are wrong, or the redirect URI / web origin is missing in the Keycloak client. |
 | Frontend `CrashLoopBackOff` with `host not found in upstream` | The backend Service is missing or renamed. Don't use `namePrefix`/`nameSuffix` in the overlay, because the nginx config refers to `openjcontroltower-backend`. |
-| `Repository must be inside the configured workspace` | Register the path as `/workspace/repos/<name>`, and make sure that directory contains `.git`. |
+| `Git URL must start with https://` | Only HTTPS clone URLs are supported; SSH URLs (`git@...`) are not. |
 | Pods rejected with `violates PodSecurity "restricted"` | A local patch added a privileged setting. Revert it, or relax the namespace label consciously. |
 
 ## Verification status
@@ -240,10 +247,10 @@ No CPU limits are set, to avoid JVM throttling. Adjust these in a patch after wa
   - the Kubernetes nginx config and `config.js` mounted read-only
   - PostgreSQL 17 under the Service DNS names
 - That run checked:
-  - the seed init script cloned a repository
   - Flyway migrated the database
   - liveness and readiness reported `UP`
   - Prometheus metrics were served
   - the frontend served the SPA and `config.js` with `no-store`
   - `/api` was proxied to the backend, which answered `401` without a token
-- An end-to-end run on a real cluster, with a real Keycloak login, is the **first-run step this guide is for**. Please report issues.
+- The Kubernetes Git runner is unit-tested against a simulated Kubernetes API (Job spec, owned Secret, polling, logs, deletion, timeouts). The Job itself runs the same script that the browser end-to-end tests run in Docker against a real Git server. It has **not** yet run on a real cluster.
+- An end-to-end run on a real cluster, with a real Keycloak login and a spec approval, is the **first-run step this guide is for**. Please report issues.

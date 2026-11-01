@@ -25,7 +25,11 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Required}
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:?Required}
       KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:?Required}
-      REPOSITORIES_BASE: /workspace/repos
+      GIT_RUNNER: docker
+      DOCKER_PROXY_URL: http://docker-proxy:2375
+      GIT_JOB_DOCKER_NETWORK: openjcontroltower
+      GIT_CREDENTIALS_SECRET: ${GIT_CREDENTIALS_SECRET:?Required}
+      GIT_CREDENTIALS_SALT: ${GIT_CREDENTIALS_SALT:?Required}
       AI_ENABLED: ${AI_ENABLED:-true}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?Required}
       AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
@@ -37,11 +41,21 @@ services:
       DECISION_PROVIDER: ${DECISION_PROVIDER:-deterministic}
       DECISION_ENDPOINT: ${DECISION_ENDPOINT:-https://api.laya.studio/v1/systemone}
       DECISION_API_KEY: ${DECISION_API_KEY:-}
-    volumes:
-      - ${REPOSITORY_HOST_PATH:?Required}:/workspace/repos
     depends_on:
       postgres:
         condition: service_healthy
+      docker-proxy:
+        condition: service_started
+  # Only container and image calls reach Docker. Creating containers is still powerful: keep this
+  # proxy on the internal network and never publish its port.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.1
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      POST: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
   frontend:
     build:
       context: ./frontend
@@ -55,3 +69,6 @@ services:
       - backend
 volumes:
   prod_pg_data:
+networks:
+  default:
+    name: openjcontroltower

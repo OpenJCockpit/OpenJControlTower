@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DecisionProviderTest {
     private final StubHttpServer server;
-    private final Spec spec=new Spec("S","p","Login","login","APPROVED","x".repeat(2000),List.of(),"001-login/spec.md");
+    private final Spec spec=new Spec("S","p","Login","login","APPROVED","x".repeat(2000),List.of(),"001-login/spec.md",null);
     DecisionProviderTest() throws Exception { server=new StubHttpServer(); }
     @AfterEach void stop() { server.close(); }
 

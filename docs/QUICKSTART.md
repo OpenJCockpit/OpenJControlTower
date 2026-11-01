@@ -16,13 +16,20 @@ An MVP with:
 
 ```bash
 cp .env.example .env
-sh scripts/init-demo-repo.sh
 docker compose up --build
 ```
 
 Go to `http://localhost:4000` and sign in with the development user `developer`, password `DevOnly-ChangeMe123!`. This account is for local development only.
 
-Register the repository in the interface. With Docker, its path is `/workspace/repos/example`. Also enter an OpenJCockpit project ID and workflow ID.
+Connect the repository under **Repositories**. The stack includes a development Git server with one repository:
+
+- Git repository URL: `http://git-server:8080/git/example.git`
+- Authentication: *Username and password*, `developer` / `DevOnly-git-123`
+- an OpenJCockpit project ID and workflow ID (placeholders are fine while dispatch is disabled)
+
+For a real repository, use its HTTPS URL and an access token with write access. The token is stored encrypted and is never shown again; leave the field empty when editing to keep it.
+
+**Check connection** shows whether the URL answers as a Git repository and whether the credentials are accepted, before you save. It sends one HTTP request (`<url>/info/refs?service=git-upload-pack`) from the backend; nothing is cloned. A stored token is only reused for the host it was entered for: change the host and you enter the token again. The check confirms read access only, so a token without write access still fails when a spec is pushed.
 
 The frontend has screens for:
 
@@ -34,7 +41,15 @@ The frontend has screens for:
 - the dependency graph
 - the queue
 
-Run the **project interview** first. After that, every new feature request needs its own **feature interview**. When an interview is finished, you can generate draft specs, approve them, and save them to the `specs/` folder of the registered repository.
+Each screen has its own URL (for example `/specs` or `/graph`), so you can bookmark it. The selected project is kept in the URL as `?project=<id>`.
+
+Run the **project interview** first. After that, every new feature request needs its own **feature interview**. When an interview is finished, you can generate draft specs and approve them.
+
+Approving a spec starts a disposable, isolated container that clones the repository, creates the branch `spec/<spec id>`, commits each spec file separately and pushes. The container is removed afterwards. To look at a branch of the development repository:
+
+```bash
+git clone -b spec/<spec id> http://developer:DevOnly-git-123@localhost:8418/git/example.git
+```
 
 ## Real AI
 
@@ -54,29 +69,29 @@ The **Speak** button lets the browser dictate answers, and **Read question** rea
 
 Set `COCKPIT_ENABLED=true`, and configure the server URL, the service account credentials and the OAuth2 token endpoint.
 
-The Control Tower only sends specs to OpenJCockpit that the DAG considers ready. You must first check yourself that the spec files are committed and pushed to a branch that OpenJCockpit can access.
+The Control Tower only sends specs to OpenJCockpit that the DAG considers ready. OpenJCockpit reads specs from the repository's branch, so first merge the spec branches, for example through a pull request.
 
 The MVP does not yet verify the status of the upstream queue automatically. Confirm a completed spec manually, after checking it in OpenJCockpit.
 
 ## Testing
 
-- **Backend:** `mvn clean verify` requires **100% JaCoCo line coverage**, and the build meets it with 78 tests and no exclusions, verified with JDK 25 and Maven 3.9. The report is in `target/site/jacoco/index.html`.
+- **Backend:** `mvn clean verify` requires **100% JaCoCo line coverage**, and the build meets it with 115 tests and no exclusions, verified with JDK 25 and Maven 3.9. The report is in `target/site/jacoco/index.html`.
 - **Frontend:** build and test it with `npm run build` and `npm run test`.
-- **Browser end-to-end tests:** run `sh scripts/run-e2e.sh`. They use Playwright with real Keycloak logins. Only Docker is required, and the test environment is always removed afterwards.
+- **Browser end-to-end tests:** run `sh scripts/run-e2e.sh`. They use Playwright with real Keycloak logins and push real spec branches to a test Git server. Only Docker is required, and the test environment is always removed afterwards.
 
 ## Kubernetes
 
 Kustomize manifests for a first installation on a Kubernetes cluster are in `deploy/kubernetes`:
 
 1. Copy the `first-run` overlay.
-2. Fill in every value marked `CHANGE ME`: images, Keycloak, host, `config.js`, `secrets.env` and `repositories.txt`.
+2. Fill in every value marked `CHANGE ME`: images, Keycloak, host, `config.js` and `secrets.env` (including the key that encrypts Git tokens).
 3. Deploy with `kubectl apply -k`.
 
 Notes:
 
 - Keycloak is not included: use an existing realm.
 - The backend deliberately runs as a single replica.
-- Commit and push generated specs with `git` from the backend pod.
+- Each approved spec is pushed from its own Kubernetes Job, which is deleted afterwards.
 
 The full procedure is in `docs/KUBERNETES.md`.
 
