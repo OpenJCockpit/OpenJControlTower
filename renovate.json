@@ -80,10 +80,10 @@
     {
       "customType": "regex",
       "description": "Open Policy Agent image used outside Dockerfiles (CI policy tests, docs)",
-      "fileMatch": [
-        "^\\.github/workflows/ci\\.yml$",
-        "^README\\.md$",
-        "^docs/QUICKSTART\\.md$"
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/",
+        "/^README\\.md$/",
+        "/^docs/QUICKSTART\\.md$/"
       ],
       "matchStrings": [
         "openpolicyagent/opa:(?<currentValue>[0-9][^\\s\"']*)"

@@ -101,9 +101,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          # Renovate requires Node 24; on an older Node, npm silently installs an unsupported Renovate major.
+          node-version: '24'
       - name: Validate Renovate configuration (strict)
-        run: npx --yes --package renovate -- renovate-config-validator --strict
+        run: npx --yes --package renovate@44.200.2 -- renovate-config-validator --strict
 
   e2e:
     name: E2E / Playwright + Keycloak
