@@ -13,8 +13,9 @@ public class DispatchService {
     private final SpecService specs;
     private final CockpitQueueClient cockpit;
     private final DecisionProvider decisions;
-    public DispatchService(DataStore store,SpecService specs,CockpitQueueClient cockpit,DecisionProvider decisions) {
-        this.store=store;this.specs=specs;this.cockpit=cockpit;this.decisions=decisions;
+    private final PolicyGuard policies;
+    public DispatchService(DataStore store,SpecService specs,CockpitQueueClient cockpit,DecisionProvider decisions,PolicyGuard policies) {
+        this.store=store;this.specs=specs;this.cockpit=cockpit;this.decisions=decisions;this.policies=policies;
     }
     public record QueueCandidate(String specId,String title,String path,int priority,String reason) {}
     public record DispatchOutcome(String specId,String result) {}
@@ -38,6 +39,8 @@ public class DispatchService {
             throw new IllegalArgumentException("Confirm the specs are committed and accessible to OpenJCockpit first");
         Project project=store.project(projectId);
         List<QueueCandidate> ready=candidates(projectId);
+        policies.check("queue.dispatch",PolicyGuard.resource("projectId",projectId,"workflowId",project.workflowId(),
+            "specIds",ready.stream().map(QueueCandidate::specId).toList()));
         List<DispatchOutcome> outcomes=new ArrayList<>();
         for (QueueCandidate candidate:ready) {
             Spec spec=store.spec(candidate.specId());

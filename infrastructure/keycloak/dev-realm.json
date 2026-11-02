@@ -11,5 +11,5 @@
      "standardFlowEnabled":false,"secret":"change-me-local"}
   ],
   "users":[{"username":"developer","enabled":true,"emailVerified":true,
-    "realmRoles":["controltower-editor"],"credentials":[{"type":"password","value":"DevOnly-ChangeMe123!","temporary":false}]}]
+    "realmRoles":["controltower-editor","controltower-admin"],"credentials":[{"type":"password","value":"DevOnly-ChangeMe123!","temporary":false}]}]
 }

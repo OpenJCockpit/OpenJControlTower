@@ -33,6 +33,11 @@ services:
       GIT_SERVER_USER: e2e-git
       GIT_SERVER_PASSWORD: e2e-only-git
       GIT_SERVER_REPOSITORIES: e2e-repo
+  # Standard policies, with test values: repositories may only use the test Git server.
+  opa:
+    build: ../infrastructure/opa
+    volumes:
+      - ./opa-config.json:/policies/openjcontroltower/config/data.json:ro
   docker-proxy:
     image: tecnativa/docker-socket-proxy:v0.4.1
     environment:
@@ -58,10 +63,14 @@ services:
       GIT_CREDENTIALS_SALT: 6e2e6e2e6e2e6e2e
       AI_ENABLED: "false"
       COCKPIT_ENABLED: "false"
+      OPA_ENABLED: "true"
+      OPA_URL: http://opa:8181
     depends_on:
       docker-proxy:
         condition: service_started
       git-server:
+        condition: service_started
+      opa:
         condition: service_started
       postgres:
         condition: service_healthy

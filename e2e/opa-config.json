@@ -1,0 +1,8 @@
+{
+  "writer_roles": ["controltower-editor", "controltower-admin"],
+  "allowed_git_hosts": ["git-server"],
+  "require_four_eyes": false,
+  "min_acceptance_criteria": 2,
+  "dispatch_freeze": false,
+  "dispatch_roles": ["controltower-editor", "controltower-admin"]
+}

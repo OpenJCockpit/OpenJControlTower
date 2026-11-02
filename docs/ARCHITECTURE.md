@@ -19,10 +19,12 @@ OpenJCockpit runs implementation workflows; OpenJControlTower elicits requiremen
 - The backend holds no repository state, so there is nothing to back up besides the database and the encryption key.
 - Dispatch uses a dedicated OAuth2 client-credentials identity, not a user's access token. An UNKNOWN HTTP outcome is non-retriable until reconciled by a human. All outbound HTTP calls have connect/read timeouts.
 - Kubernetes deployment uses Kustomize (`deploy/kubernetes`), not Helm: it ships with `kubectl` and keeps manifests reviewable as plain YAML. The backend runs as a **single replica**, because dispatch is serialized in-process. Horizontal scaling needs a distributed lock first.
-- Frontend images are environment-neutral: OIDC settings are read at runtime from `/config.js` (mounted from a ConfigMap), with build-time `VITE_*` values as fallback.
+- Frontend images are environment-neutral: before sign-in, the web application reads the Keycloak URL, realm and client from the backend (`GET /api/public/auth-config`), with `/config.js` (mounted from a ConfigMap) and build-time `VITE_*` values as fallbacks.
+- Runtime settings (Keycloak and Open Policy Agent) live in the `settings` table and take precedence over environment variables, which act as defaults. Only the admin role may change them. The backend's `JwtDecoder` reads the Keycloak settings for every token and rebuilds its Nimbus decoder when the issuer or signing-key URL changes, so a change needs no restart. A Keycloak change is only saved when the realm's signing keys can be fetched; `KEYCLOAK_IGNORE_SAVED_SETTINGS=true` is the way back after a mistake that keys alone cannot catch, such as a wrong client ID.
+- Open Policy Agent is the policy decision point; `PolicyGuard` in the application layer is the enforcement point. The governed steps (`repository.save`, `repository.check`, `spec.approve`, `queue.dispatch`) send the action, the user (name and realm roles) and the resource, and act only on `allow: true`. Policies are Rego in `infrastructure/opa/policies`, built into the `opa` image with their data, and the agent's REST API only allows reads and decisions (`system.authz`). Unreachable agent: deny by default (fail closed), or allow when an administrator chose fail open. Who generated a spec is stored (`specs.created_by`) so policies can require a second person.
 
 ## Security boundary
-Browser PKCE -> Keycloak -> Bearer token -> Spring resource server. Write routes require a configurable realm role. Use an external or shared issuer by setting `KEYCLOAK_ISSUER_URI`, `KEYCLOAK_JWKS_URI`, the frontend runtime `config.js` (or `VITE_KEYCLOAK_*`), and service credentials. Health probes and Prometheus metrics are unauthenticated on the backend port, but are not routed through the frontend or Ingress.
+Browser PKCE -> Keycloak -> Bearer token -> Spring resource server -> Open Policy Agent for governed steps. Write routes require a configurable realm role; settings routes require the admin role. Use an external or shared issuer from the Settings page, or with `KEYCLOAK_ISSUER_URI`, `KEYCLOAK_JWKS_URI` and `KEYCLOAK_CLIENT_ID`, plus service credentials. Health probes and Prometheus metrics are unauthenticated on the backend port, but are not routed through the frontend or Ingress.
 
 ## Current MVP limitations
 1. Spec branches are pushed, but no pull request is opened, and SSH remotes and GitHub App credentials are not supported (HTTPS with a token or password only).
@@ -30,7 +32,7 @@ Browser PKCE -> Keycloak -> Bearer token -> Spring resource server. Write routes
 3. Manual DONE acknowledgement after verifying the Cockpit run. No upstream queue status reconciliation or webhooks yet.
 4. In-browser speech recognition and synthesis: browser-dependent, possibly cloud processed; no backend STT/TTS, real-time duplex streaming, or consent/retention workflows.
 5. AI is not used in default demo mode; model responses need production prompt-injection and PII review.
-6. External secret storage, rate limits, audit logging, tenant ACLs, and OPA enforcement are future hardening work.
+6. External secret storage, rate limits, audit logging and tenant ACLs are future hardening work. Open Policy Agent enforces the standard policies, but policy values change through the image, not the Settings page.
 7. Laya/Jev provider may receive spec text; opt in only with data classification and vendor review.
 8. Single backend replica: see the deployment decision above.
 
@@ -39,7 +41,7 @@ Browser PKCE -> Keycloak -> Bearer token -> Spring resource server. Write routes
 - Performance: one-pass Kahn topological sort; bounded (1-6) spec generation.
 - Compatibility: OpenAPI-contract-first integration; isolated REST adapters.
 - Reliability: persistent interviews, reserved dispatch IDs, halt-on-uncertain semantics, bounded HTTP timeouts, health probes and graceful shutdown.
-- Security: OIDC, realm roles, encrypted write-only Git secrets, isolated disposable Git containers, non-root containers, no untrusted agent tools.
+- Security: OIDC, realm roles, policy as code (Open Policy Agent, fail closed), encrypted write-only Git secrets, isolated disposable Git containers, non-root containers, no untrusted agent tools.
 - Maintainability: dependency-free domain classes, adapters at edges, 100% JaCoCo line coverage enforced in the build.
 - Usability: interview questions, voice controls, guided review and graph visualization.
 - Portability: multi-stage, environment-neutral containers, external configuration and Kustomize manifests.

@@ -40,7 +40,7 @@ test('signing out ends the session', async ({ page }) => {
   // Depending on the Keycloak version the user may have to confirm the logout.
   const confirm = page.locator('#kc-logout');
   if (await confirm.isVisible({ timeout: 3_000 }).catch(() => false)) await confirm.click();
-  // The app redirects to Keycloak at once, so do not wait for its load event.
-  await page.goto('/', { waitUntil: 'commit' });
+  // Keycloak sends the browser back to the app, which requires a new login at once.
+  await expect(page).toHaveURL(/\/realms\/openjcontroltower\/protocol\/openid-connect\/auth/);
   await expect(page.locator('#kc-login')).toBeVisible();
 });

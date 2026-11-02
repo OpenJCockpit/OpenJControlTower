@@ -27,7 +27,10 @@ public class SecurityConfiguration {
         http.csrf(csrf->csrf.disable()).sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth->auth
                 .requestMatchers("/actuator/health","/actuator/health/**","/actuator/info","/actuator/prometheus","/v3/api-docs/**","/swagger-ui/**","/swagger-ui.html").permitAll()
+                // The web application reads the Keycloak settings before anyone has signed in.
+                .requestMatchers(HttpMethod.GET,"/api/public/auth-config").permitAll()
                 .requestMatchers(HttpMethod.GET,"/api/**").authenticated()
+                .requestMatchers("/api/settings/**").hasAuthority("ROLE_"+admin)
                 .requestMatchers("/api/**").hasAnyAuthority("ROLE_"+editor,"ROLE_"+admin)
                 .anyRequest().denyAll())
             .oauth2ResourceServer(oauth->oauth.jwt(jwt->jwt.jwtAuthenticationConverter(jwtConverter())));

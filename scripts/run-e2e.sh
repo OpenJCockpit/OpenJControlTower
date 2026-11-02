@@ -1,6 +1,6 @@
 #!/bin/sh
 # Browser end-to-end tests: builds the images, starts a disposable stack (PostgreSQL, Keycloak with a
-# test-only realm, a Git server, a Docker socket proxy, backend, frontend) and runs Playwright in its
+# test-only realm, a Git server, Open Policy Agent, a Docker socket proxy, backend, frontend) and runs Playwright in its
 # official container. Always cleans up.
 set -eu
 cd "$(dirname "$0")/../e2e"
@@ -9,7 +9,7 @@ cleanup() { compose --profile test down -v --remove-orphans >/dev/null 2>&1 || t
 trap cleanup EXIT INT TERM
 cleanup
 rm -rf playwright-report test-results
-compose up -d --build --wait --wait-timeout 300 postgres keycloak git-server docker-proxy backend frontend
+compose up -d --build --wait --wait-timeout 300 postgres keycloak git-server opa docker-proxy backend frontend
 status=0
 compose --profile test run --rm --build e2e || status=$?
 # The Git harness must leave nothing behind: every job container is removed after its push.

@@ -20,19 +20,22 @@ public class ProjectService {
     private final DataStore store;
     private final CredentialCipher cipher;
     private final GitConnectionChecker checker;
+    private final PolicyGuard policies;
     private final boolean allowHttp;
-    public ProjectService(DataStore store,CredentialCipher cipher,GitConnectionChecker checker,
+    public ProjectService(DataStore store,CredentialCipher cipher,GitConnectionChecker checker,PolicyGuard policies,
                           @Value("${controltower.git.allow-http}") boolean allowHttp) {
-        this.store=store;this.cipher=cipher;this.checker=checker;this.allowHttp=allowHttp;
+        this.store=store;this.cipher=cipher;this.checker=checker;this.policies=policies;this.allowHttp=allowHttp;
     }
     public Project create(Input input) {
         Project project=validated(UUID.randomUUID().toString(),input);
+        checkSave(project);
         store.saveProject(project,secret(project,input.secret(),null));
         return store.project(project.id());
     }
     public Project update(String id,Input input) {
         Project existing=store.project(id);
         Project project=validated(id,input);
+        checkSave(project);
         String stored=store.encryptedSecret(id);
         if (!project.credentialType().equals("NONE") && blank(input.secret()) && stored!=null)
             requireSameHost(existing.gitUrl(),project.gitUrl());
@@ -46,6 +49,7 @@ public class ProjectService {
     public GitConnectionChecker.Result checkConnection(String projectId,String gitUrl,String credentialType,
                                                        String gitUsername,String secret) {
         String url=GitRepositories.gitUrl(gitUrl,allowHttp);
+        policies.check("repository.check",PolicyGuard.resource("projectId",projectId,"gitUrl",url,"host",host(url)));
         if (GitRepositories.credentialType(credentialType).equals("NONE")) return checker.check(url,null,null);
         String username=blank(gitUsername)?"token":gitUsername.strip();
         if (!blank(secret)) return checker.check(url,username,secret);
@@ -54,6 +58,12 @@ public class ProjectService {
         requireSameHost(store.project(projectId).gitUrl(),url);
         return checker.check(url,username,cipher.decrypt(stored));
     }
+    private void checkSave(Project project) {
+        policies.check("repository.save",PolicyGuard.resource("projectId",project.id(),"name",project.name(),
+            "gitUrl",project.gitUrl(),"host",host(project.gitUrl()),"defaultBranch",project.defaultBranch(),
+            "credentialType",project.credentialType()));
+    }
+    private static String host(String url) { return URI.create(url).getHost().toLowerCase(Locale.ROOT); }
     /** A stored secret never travels to another host than the one it was entered for. */
     private static void requireSameHost(String storedUrl,String url) {
         if (storedUrl==null || !origin(storedUrl).equals(origin(url)))

@@ -10,6 +10,8 @@ resources:
   - ../../base
 components:
   - ../../components/bundled-postgres
+  # Open Policy Agent with the standard policies; remove to run without policy checks.
+  - ../../components/open-policy-agent
   # - ../../components/network-policies
 images:
   - name: openjcontroltower-backend
@@ -18,6 +20,9 @@ images:
   - name: openjcontroltower-frontend
     newName: ghcr.io/CHANGE-ME/openjcontroltower-frontend # CHANGE ME
     newTag: main
+  - name: openjcontroltower-opa
+    newName: ghcr.io/CHANGE-ME/openjcontroltower-opa # CHANGE ME
+    newTag: main
 configMapGenerator:
   - name: openjcontroltower-backend-config
     behavior: merge
@@ -25,6 +30,9 @@ configMapGenerator:
       # Keycloak: the issuer must equal the "iss" claim browsers receive; JWKS must be reachable from the pod.
       - KEYCLOAK_ISSUER_URI=https://identity.example.org/realms/engineering # CHANGE ME
       - KEYCLOAK_JWKS_URI=https://identity.example.org/realms/engineering/protocol/openid-connect/certs # CHANGE ME
+      # Public client of the web application. With the issuer, the backend publishes it to the browser;
+      # administrators can change all three on the settings page.
+      - KEYCLOAK_CLIENT_ID=openjcontroltower-web # CHANGE ME
       # OpenJCockpit dispatch stays disabled until the service account is authorized there.
       - COCKPIT_ENABLED=false
       - COCKPIT_BASE_URL=https://cockpit.example.org # CHANGE ME

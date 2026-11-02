@@ -15,7 +15,8 @@ class SpecServiceTest {
     private final DataStore store=mock(DataStore.class);
     private final AiAssistant ai=mock(AiAssistant.class);
     private final GitSpecPublisher publisher=mock(GitSpecPublisher.class);
-    private final SpecService service=new SpecService(store,ai,publisher);
+    private final PolicyGuard policies=mock(PolicyGuard.class);
+    private final SpecService service=new SpecService(store,ai,publisher,policies);
     private final Project project=new Project("p","Example","https://git.example.org/team/repo.git","main","NONE",null,false,"c","wf-1");
     private final SpecTemplate defaultTemplate=new SpecTemplate("st","Default",
         "{{SPEC_ID}}|{{WORKFLOW_ID}}|{{TITLE}}|{{SUMMARY}}|{{DEPENDENCIES}}|{{ACCEPTANCE_CRITERIA}}",true);
@@ -49,7 +50,7 @@ class SpecServiceTest {
         assertEquals(List.of(result.get(0).id()),result.get(1).dependsOn());
         assertTrue(result.get(0).body().startsWith(result.get(0).id()+"|wf-1|First step|Summary of First step|[SPEC-old]|- [ ] First criterion\n- [ ] Second criterion"));
         assertEquals("DRAFT",result.get(0).status());
-        verify(store,times(2)).saveSpec(any());
+        verify(store,times(2)).saveSpec(any(),any());
         verify(store).saveInterview(argThat(i->i.status().equals("GENERATED") && i.currentQuestion().isEmpty()));
     }
     @Test void usesExplicitSpecTemplate() {
@@ -72,7 +73,7 @@ class SpecServiceTest {
         for (int i=0;i<7;i++) seven.add(proposal("P"+i,null,null));
         when(ai.decompose(anyString(),anyList())).thenReturn(new AiAssistant.Plan(seven));
         assertThrows(IllegalArgumentException.class,()->service.generate("i",null));
-        verify(store,never()).saveSpec(any());
+        verify(store,never()).saveSpec(any(),any());
     }
     @Test void requiresADefaultTemplate() {
         givenCompleteInterview(List.of());
@@ -103,7 +104,7 @@ class SpecServiceTest {
         when(ai.decompose(anyString(),anyList())).thenReturn(new AiAssistant.Plan(List.of(
             proposal("A",null,null),proposal("B",List.of(0,0),null))));
         assertThrows(IllegalArgumentException.class,()->service.generate("i",null));
-        verify(store,never()).saveSpec(any());
+        verify(store,never()).saveSpec(any(),any());
     }
     @Test void computesGraphForProject() {
         when(store.specs("p")).thenReturn(List.of(spec("A","DONE"),spec("B","APPROVED","A")));
@@ -120,6 +121,17 @@ class SpecServiceTest {
         when(publisher.publish(project,"cipher",draft)).thenReturn(new GitSpecPublisher.Published("spec/A","abc123"));
         assertEquals("APPROVED",service.approve("A").status());
         verify(store).setSpecPublished("A","APPROVED","spec/A","abc123");
+    }
+    @Test void asksThePoliciesBeforePushingAndPassesTheAcceptanceCriteria() {
+        Spec draft=new Spec("A","p","Title","slug","DRAFT","# A\n- [ ] First\n  * [x] Second \n- not a criterion",List.of("Z"),"001-x/spec.md",null);
+        when(store.spec("A")).thenReturn(draft);
+        when(store.specs("p")).thenReturn(List.of(spec("Z","DONE"),draft));
+        when(store.specCreator("A")).thenReturn("alice");
+        doThrow(new PolicyGuard.PolicyDeniedException("Denied by policy: four eyes")).when(policies).check(eq("spec.approve"),anyMap());
+        assertThrows(PolicyGuard.PolicyDeniedException.class,()->service.approve("A"));
+        verify(policies).check("spec.approve",PolicyGuard.resource("id","A","projectId","p","title","Title","body",draft.body(),
+            "dependsOn",List.of("Z"),"createdBy","alice","acceptanceCriteria",List.of("First","Second")));
+        verifyNoInteractions(publisher);
     }
     @Test void rejectsApprovingNonDraft() {
         when(store.spec("A")).thenReturn(spec("A","APPROVED"));

@@ -77,6 +77,21 @@ jobs:
         run: docker build --pull --tag openjcontroltower-backend:ci .
       - name: Build frontend image
         run: docker build --pull --tag openjcontroltower-frontend:ci ./frontend
+      - name: Build Open Policy Agent image
+        run: docker build --pull --tag openjcontroltower-opa:ci ./infrastructure/opa
+
+  policies:
+    name: Policies / Open Policy Agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check, format and test the Rego policies
+        run: |
+          opa() { docker run --rm -v "$PWD/infrastructure/opa/policies:/policies:ro" openpolicyagent/opa:1.10.1-static "$@"; }
+          opa check --strict /policies
+          test -z "$(opa fmt --list /policies)"
+          opa test --verbose /policies
 
   renovate-config:
     name: Renovate / validate configuration
@@ -125,13 +140,13 @@ jobs:
         working-directory: deploy/kubernetes/overlays/first-run
         run: |
           sed -i 's|  # - ../../components/network-policies|  - ../../components/network-policies|' kustomization.yaml
-          test "$(kubectl kustomize . | grep -c '^kind: NetworkPolicy')" -eq 4
+          test "$(kubectl kustomize . | grep -c '^kind: NetworkPolicy')" -eq 5
 
   publish-images:
     name: Publish images to GHCR
     # Only verified commits on main and version tags produce deployable images.
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [backend, frontend, containers, e2e, kubernetes-manifests]
+    needs: [backend, frontend, containers, policies, e2e, kubernetes-manifests]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -144,6 +159,8 @@ jobs:
             context: .
           - image: openjcontroltower-frontend
             context: ./frontend
+          - image: openjcontroltower-opa
+            context: ./infrastructure/opa
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3

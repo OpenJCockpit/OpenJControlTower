@@ -35,7 +35,7 @@ GitHub setup: unpack archive, push its files into a GitHub repository, enable Gi
 
 ## Known gaps
 
-- `mvn clean verify` passes locally on Temurin 25.0.3 / Maven 3.9.16 with **100% JaCoCo line coverage** (115 tests, no exclusions). The frontend build, typecheck and Vitest suite, and both Docker images, also pass locally. The workflows have not yet run on GitHub, because no remote is connected.
+- `mvn clean verify` passes locally on Temurin 25.0.3 / Maven 3.9.16 with **100% JaCoCo line coverage** (151 tests, no exclusions). The frontend build, typecheck and Vitest suite, and both Docker images, also pass locally. The workflows have not yet run on GitHub, because no remote is connected.
 - Spring Security 7 adds `FACTOR_*` authorities (for example `FACTOR_BEARER`) to authenticated JWTs; tests that assert on authorities filter them out.
 - The Vitest suite covers the OpenAPI HTTP client and runtime Keycloak configuration. Browser E2E tests (7, Playwright) pass locally against the Compose stack in `e2e/`.
 - E2E networking: the browser reaches Compose services over plain HTTP (`http://frontend:8080`, `http://keycloak:8080`). keycloak-js needs Web Crypto for PKCE, which only exists in secure contexts. The suite therefore runs Playwright's full Chromium (`channel: 'chromium'`) with `--unsafely-treat-insecure-origin-as-secure` for exactly those two origins; the default headless shell ignores that flag. The backend's issuer is `http://keycloak:8080/realms/openjcontroltower` to match.

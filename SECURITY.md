@@ -14,6 +14,8 @@ We cannot guarantee a particular response-time SLA until maintainers and contact
 
 Never deploy the local sample Keycloak realm, seeded user, demo passwords, the development Git server, `GIT_ALLOW_HTTP=true`, Docker `start-dev` or public HTTP to an untrusted environment. Never publish the Docker socket proxy's port: whoever can create containers through it controls the host. Keep `GIT_CREDENTIALS_SECRET` and `GIT_CREDENTIALS_SALT` in a secret manager; together with a database dump they reveal every stored Git token. Require TLS, proper IAM, per-project authorization, encrypted backups, network isolation, security monitoring and vulnerability scans. Review LLM and browser speech data processing with your privacy office. Queue dispatch must only use a service identity explicitly authorized by OpenJCockpit.
 
+The Settings page lets the admin role switch the Keycloak instance that every token is validated against and turn policy enforcement off: treat that role like a cluster administrator. Settings changes record who made them (`settings.updated_by`). Keep Open Policy Agent reachable only from the backend; its REST API refuses policy and data changes, but it shows the loaded policies.
+
 Container images run as numeric non-root users with read-only root filesystems. The Kubernetes manifests satisfy the `restricted` Pod Security Standard and do not mount ServiceAccount tokens. Probe and metrics endpoints are unauthenticated on the backend port and must not be routed publicly; the provided Ingress routes only to the frontend, which proxies `/api` only.
 
 Refer to `docs/PRODUCTION.md` for additional requirements and gaps.

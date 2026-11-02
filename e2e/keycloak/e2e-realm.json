@@ -35,6 +35,16 @@
       "credentials": [{ "type": "password", "value": "E2E-only-editor-1!", "temporary": false }]
     },
     {
+      "username": "e2e-admin",
+      "enabled": true,
+      "email": "e2e-admin@example.invalid",
+      "emailVerified": true,
+      "firstName": "E2E",
+      "lastName": "Admin",
+      "realmRoles": ["controltower-admin"],
+      "credentials": [{ "type": "password", "value": "E2E-only-admin-1!", "temporary": false }]
+    },
+    {
       "username": "e2e-viewer",
       "enabled": true,
       "email": "e2e-viewer@example.invalid",

@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: openjcontroltower-opa
+  labels:
+    app.kubernetes.io/name: openjcontroltower
+    app.kubernetes.io/component: opa
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: openjcontroltower
+    app.kubernetes.io/component: opa
+  ports:
+    - name: http
+      port: 8181
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openjcontroltower-opa
+  labels:
+    app.kubernetes.io/name: openjcontroltower
+    app.kubernetes.io/component: opa
+spec:
+  # Stateless: every replica serves the same policies from its image.
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openjcontroltower
+      app.kubernetes.io/component: opa
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openjcontroltower
+        app.kubernetes.io/component: opa
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: opa
+          image: openjcontroltower-opa
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8181
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              # Ready once the policies are loaded.
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, resolveKeycloakConfig } from './client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api, createKeycloak, loadKeycloakConfig, resolveKeycloakConfig } from './client';
 
 vi.mock('keycloak-js', () => ({
   default: class MockKeycloak {
@@ -11,6 +11,7 @@ vi.mock('keycloak-js', () => ({
 afterEach(() => vi.unstubAllGlobals());
 
 describe('contract API client', () => {
+  beforeEach(() => { createKeycloak({ url: 'http://kc', realm: 'r', clientId: 'c' }); });
   it('includes the current bearer token and reads a successful JSON response', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ name: 'demo' }), {
       status: 200,
@@ -51,5 +52,23 @@ describe('Keycloak configuration', () => {
     expect(resolveKeycloakConfig({ keycloakUrl: 'https://id.example.org' }, { VITE_KEYCLOAK_URL: 'https://build', VITE_KEYCLOAK_REALM: 'eng' }))
       .toEqual({ url: 'https://id.example.org', realm: 'eng', clientId: 'controltower-web' });
     expect(resolveKeycloakConfig()).toEqual({ url: 'http://localhost:8081', realm: 'openjcontroltower', clientId: 'controltower-web' });
+  });
+});
+
+describe('Keycloak settings from the backend', () => {
+  const fallback = { url: 'http://fallback', realm: 'f', clientId: 'fc' };
+  it('uses the settings the backend publishes before sign-in', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ url: 'https://id.example.org', realm: 'eng', clientId: 'web' })));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(loadKeycloakConfig(fallback)).resolves.toEqual({ url: 'https://id.example.org', realm: 'eng', clientId: 'web' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/public/auth-config');
+  });
+  it('falls back when the backend fails, answers incompletely or cannot be reached', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 503 })));
+    await expect(loadKeycloakConfig(fallback)).resolves.toEqual(fallback);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ url: 'https://id.example.org' }))));
+    await expect(loadKeycloakConfig(fallback)).resolves.toEqual(fallback);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')));
+    await expect(loadKeycloakConfig(fallback)).resolves.toEqual(fallback);
   });
 });

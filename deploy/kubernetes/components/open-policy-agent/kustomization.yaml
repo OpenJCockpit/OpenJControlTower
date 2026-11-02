@@ -1,0 +1,15 @@
+# Open Policy Agent with the standard policies (infrastructure/opa). The backend asks it before saving or
+# checking repositories, approving specs and dispatching. The image contains the policies and their values;
+# its REST API is read-only. Administrators can switch enforcement on the settings page.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - opa.yaml
+configMapGenerator:
+  - name: openjcontroltower-backend-config
+    behavior: merge
+    literals:
+      - OPA_ENABLED=true
+      - OPA_URL=http://openjcontroltower-opa:8181
+      # Fail closed: governed actions are denied while the agent cannot be reached.
+      - OPA_FAIL_OPEN=false

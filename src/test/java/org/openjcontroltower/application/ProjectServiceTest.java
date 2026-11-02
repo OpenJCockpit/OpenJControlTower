@@ -14,7 +14,8 @@ class ProjectServiceTest {
     private final DataStore store=mock(DataStore.class);
     private final CredentialCipher cipher=new CredentialCipher("unit-test-secret-at-least-32-characters","0123456789abcdef");
     private final GitConnectionChecker checker=mock(GitConnectionChecker.class);
-    private final ProjectService service=new ProjectService(store,cipher,checker,false);
+    private final PolicyGuard policies=mock(PolicyGuard.class);
+    private final ProjectService service=new ProjectService(store,cipher,checker,policies,false);
     private final GitConnectionChecker.Result ok=new GitConnectionChecker.Result(true,"OK","Connected");
     private final Project stored=new Project("id","Repo","https://git.example.org/r.git","main","HTTPS_TOKEN","bot",true,"c","w");
 
@@ -109,6 +110,23 @@ class ProjectServiceTest {
         assertThrows(IllegalArgumentException.class,()->service.checkConnection(null,"http://git.example.org/r.git","NONE",null,null));
         assertThrows(IllegalArgumentException.class,()->service.checkConnection(null,"https://git.example.org/r.git","SSH",null,null));
         verifyNoInteractions(checker);
+    }
+    @Test void asksThePoliciesBeforeSavingOrCheckingARepository() {
+        when(store.project(anyString())).thenReturn(stored);
+        service.create(new ProjectService.Input("Repo","https://Git.Example.org/r.git","dev","NONE",null,null,"c","w"));
+        verify(policies).check(eq("repository.save"),argThat(r->r.get("host").equals("git.example.org")
+            && r.get("gitUrl").equals("https://Git.Example.org/r.git") && r.get("name").equals("Repo")
+            && r.get("defaultBranch").equals("dev") && r.get("credentialType").equals("NONE") && r.get("projectId")!=null));
+        service.checkConnection(null,"https://git.example.org/r.git","NONE",null,null);
+        verify(policies).check("repository.check",PolicyGuard.resource("projectId",null,"gitUrl","https://git.example.org/r.git","host","git.example.org"));
+        doThrow(new PolicyGuard.PolicyDeniedException("Denied by policy: host")).when(policies).check(eq("repository.save"),anyMap());
+        assertThrows(PolicyGuard.PolicyDeniedException.class,()->service.update("id",input("NONE",null,null,null)));
+        assertThrows(PolicyGuard.PolicyDeniedException.class,()->service.create(input("NONE",null,null,null)));
+        verify(store,never()).updateProject(any(),any());
+        verify(store,times(1)).saveProject(any(),any());
+        doThrow(new PolicyGuard.PolicyDeniedException("Denied by policy: host")).when(policies).check(eq("repository.check"),anyMap());
+        assertThrows(PolicyGuard.PolicyDeniedException.class,()->service.checkConnection(null,"https://git.example.org/r.git","NONE",null,null));
+        verify(checker,times(1)).check(anyString(),any(),any());
     }
     @Test void refusesUpdatesWithoutAnySecretOrForUnknownProjects() {
         when(store.project("id")).thenReturn(stored);

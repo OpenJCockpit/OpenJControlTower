@@ -28,7 +28,8 @@ OpenJControlTower is an open-source **interview-first control plane** for specif
 - **Dependency DAG:** Kahn-based topological ordering, missing-edge, duplicate-edge and cycle validation. Only approved specs whose dependencies are DONE are ready.
 - **Decision adapters:** deterministic fallback, or opt-in Jev/Laya `/v1/systemone` ranking for ready nodes.
 - **OpenJCockpit dispatch:** service-to-service OAuth2 client credentials; queue operation using `specFile` and `workflowId`, failure-conservative deduplication.
-- **Keycloak:** OAuth2/OIDC JWT resource server, browser Authorization Code + PKCE, configurable issuer and roles.
+- **Keycloak:** OAuth2/OIDC JWT resource server, browser Authorization Code + PKCE, configurable issuer and roles. Administrators can switch the Keycloak instance, realm and client on the **Settings** page (`/settings`) at runtime; the signing keys are checked before a change is saved.
+- **Policy as code:** Open Policy Agent decides on saving and checking repositories, approving specs and dispatching. Standard Rego policies ship in [`infrastructure/opa/policies`](infrastructure/opa/policies): writer roles, allowed Git hosts, four-eyes approval, minimum acceptance criteria, secret detection in specs, a dispatch freeze and dispatch roles. A denial names its reasons. The agent's URL, decision path and fail-open/closed behaviour are set on the Settings page.
 - **Contract-first development:** `contracts/openapi.yaml` plus generated frontend TypeScript types, with Spring `/v3/api-docs` for runtime inspection.
 - **Kubernetes-ready operations:** Flyway-versioned schema, liveness/readiness probes, Prometheus metrics, structured JSON logs, graceful shutdown, bounded outbound HTTP timeouts, non-root read-only containers and Kustomize manifests that pass the `restricted` Pod Security Standard.
 
@@ -41,7 +42,8 @@ flowchart LR
   I --> F[Feature discovery]
   F --> S[Small spec drafts]
   S --> A[Human approval]
-  A --> G[spec branch in Git]
+  A --> P{Open Policy Agent}
+  P --> G[spec branch in Git]
   G --> D[Dependency DAG]
   D --> Q[Ready work ranking]
   Q --> O[OpenJCockpit queue]
@@ -111,7 +113,7 @@ Vite runs at **http://localhost:5173**. A backend running on your machine cannot
 
 ## ☸️ Kubernetes
 
-Kustomize manifests live in [`deploy/kubernetes`](deploy/kubernetes): a `base`, optional components (`bundled-postgres`, `network-policies`) and a `first-run` overlay with every value to change marked `CHANGE ME`.
+Kustomize manifests live in [`deploy/kubernetes`](deploy/kubernetes): a `base`, optional components (`bundled-postgres`, `open-policy-agent`, `network-policies`) and a `first-run` overlay with every value to change marked `CHANGE ME`.
 
 ```bash
 cd deploy/kubernetes/overlays/first-run
@@ -121,7 +123,7 @@ kubectl apply -k .
 kubectl -n openjcontroltower rollout status deploy/openjcontroltower-backend
 ```
 
-What you get: one stateless backend replica (`Recreate` strategy) that may create a Kubernetes Job per approved spec, two frontend replicas behind a PodDisruptionBudget, an Ingress, and optional single-instance PostgreSQL for evaluation. Keycloak is **not** deployed: point the overlay at an existing realm. Images are published to GHCR by CI on `main` and `v*` tags.
+What you get: one stateless backend replica (`Recreate` strategy) that may create a Kubernetes Job per approved spec, two frontend replicas behind a PodDisruptionBudget, two Open Policy Agent replicas with the standard policies, an Ingress, and optional single-instance PostgreSQL for evaluation. Keycloak is **not** deployed: point the overlay at an existing realm. Images are published to GHCR by CI on `main` and `v*` tags.
 
 Read the full [Kubernetes deployment guide](docs/KUBERNETES.md) for prerequisites, Keycloak client setup, spec branches and Git credentials, upgrades, backups and troubleshooting.
 
@@ -168,6 +170,7 @@ openjcontroltower/
 ├── src/main/resources/db/migration/   # Flyway versioned schema migrations
 ├── infrastructure/keycloak/           # local Keycloak realm (development only)
 ├── infrastructure/git-server/         # Git server over HTTP (development and E2E only)
+├── infrastructure/opa/                # Open Policy Agent image with the standard Rego policies and tests
 ├── e2e/                              # Playwright browser tests + disposable Compose stack
 ├── deploy/kubernetes/                 # Kustomize base, components and first-run overlay
 ├── docs/                              # architecture, Kubernetes + production guidance
@@ -192,10 +195,13 @@ openjcontroltower/
 
 | Variable | Purpose |
 |---|---|
-| `KEYCLOAK_ISSUER_URI` | Exact external JWT `iss`, can point to OpenJCockpit's realm |
-| `KEYCLOAK_JWKS_URI` | Network-reachable JWKS URL for backend validation |
-| `VITE_KEYCLOAK_URL`, `VITE_KEYCLOAK_REALM`, `VITE_KEYCLOAK_CLIENT_ID` | Browser OIDC defaults at frontend build time; overridden at runtime by `/config.js` (`window.__OJCT_CONFIG__`), which Kubernetes mounts from a ConfigMap |
-| `CONTROLTOWER_EDITOR_ROLE`, `CONTROLTOWER_ADMIN_ROLE` | Configurable write-authorized realm roles |
+| `KEYCLOAK_ISSUER_URI` | Exact external JWT `iss` (`<Keycloak URL>/realms/<realm>`), can point to OpenJCockpit's realm. Default for the Settings page |
+| `KEYCLOAK_JWKS_URI` | `<URL>/realms/<realm>/protocol/openid-connect/certs` as the backend reaches Keycloak. Default for the Settings page |
+| `KEYCLOAK_CLIENT_ID` | Public client the web application signs in with (default `controltower-web`). Default for the Settings page |
+| `KEYCLOAK_IGNORE_SAVED_SETTINGS` | Recovery: `true` ignores the Keycloak settings saved on the Settings page, for example after a wrong client ID locked everyone out |
+| `VITE_KEYCLOAK_URL`, `VITE_KEYCLOAK_REALM`, `VITE_KEYCLOAK_CLIENT_ID` | Fallback only: the web application first reads the Keycloak settings from the backend (`/api/public/auth-config`); if that fails, it uses `/config.js` (`window.__OJCT_CONFIG__`) and then these build-time values |
+| `OPA_ENABLED`, `OPA_URL`, `OPA_DECISION_PATH`, `OPA_FAIL_OPEN` | Open Policy Agent defaults for the Settings page (default off, `http://localhost:8181`, `openjcontroltower/decision`, fail closed). Compose and the Kubernetes overlay enable it |
+| `CONTROLTOWER_EDITOR_ROLE`, `CONTROLTOWER_ADMIN_ROLE` | Configurable write-authorized realm roles. Only the admin role may change the Settings page |
 | `COCKPIT_TOKEN_URI`, `COCKPIT_CLIENT_ID`, `COCKPIT_CLIENT_SECRET` | Separate service-account authorization for queue dispatch |
 | `COCKPIT_BASE_URL`, `COCKPIT_ENABLED` | OpenJCockpit endpoint / opt-in dispatch switch |
 | `GIT_CREDENTIALS_SECRET`, `GIT_CREDENTIALS_SALT` | **Required.** Key (32+ characters) and hex salt that encrypt the Git tokens stored per repository |
@@ -208,6 +214,24 @@ openjcontroltower/
 | `HTTP_CONNECT_TIMEOUT`, `HTTP_READ_TIMEOUT` | Bounds for OpenJCockpit and decision-provider calls (default `5s` / `30s`) |
 | `API_DOCS_ENABLED` | Serve `/v3/api-docs` and Swagger UI (default `true`; `false` in Kubernetes) |
 | `LOGGING_STRUCTURED_FORMAT_CONSOLE` | Set to `ecs` (Kubernetes default) or `logstash` for JSON logs |
+
+Values saved on the Settings page are stored in the database and take precedence over these environment variables. Keycloak changes apply to every user at once; when the URL or realm changes, everyone signs in again.
+
+### Policies
+
+The backend is the policy enforcement point. Before each governed step it posts `{"input": {"action", "user": {"name", "roles"}, "resource"}}` to `<OPA_URL>/v1/data/<decision path>` and expects `{"allow": bool, "deny": [reasons]}`. The actions are `repository.save`, `repository.check`, `spec.approve` and `queue.dispatch`.
+
+| Policy | Default |
+|---|---|
+| Writer roles: every governed action needs `controltower-editor` or `controltower-admin` | On |
+| Allowed Git hosts for repositories and connection checks | Every host (empty list) |
+| Four-eyes: whoever generated a spec may not approve it | Off |
+| Minimum acceptance criteria per spec | 2 |
+| Secret detection: private keys, AWS, GitHub, GitLab and Slack tokens block approval | On |
+| Dispatch freeze | Off |
+| Dispatch roles | Editor and admin |
+
+Change the values in [`openjcontroltower/config/data.json`](infrastructure/opa/policies/openjcontroltower/config/data.json) and rebuild the `opa` image (`docker compose up -d --build opa`). Run the policy tests with `docker run --rm -v "$PWD/infrastructure/opa/policies:/policies:ro" openpolicyagent/opa:1.10.1-static test /policies`. The agent's REST API is read-only (`system/authz.rego`), so policies cannot be replaced at runtime. With the default fail-closed setting, governed actions are denied while the agent is down.
 
 A shared Keycloak realm does **not** imply that OpenJCockpit grants the control tower's service client access; configure a trusted role/audience mapping there.
 
@@ -226,13 +250,16 @@ cd frontend && npm run build
   - `DataStore` against H2, migrated by Flyway.
   - The OpenJCockpit and decision-provider HTTP adapters against a real local HTTP server, including errors and timeouts.
   - The Git publisher (commits, credentials, masking of secrets in errors) and the Docker and Kubernetes job runners against a simulated Docker Engine and Kubernetes API.
-- **A full `@SpringBootTest`** that drives the REST API through Spring Security with JWTs: it covers authorization, validation, and the interview → spec → approval → dispatch flow.
+- **A full `@SpringBootTest`** that drives the REST API through Spring Security with JWTs: it covers authorization, validation, the settings endpoints, a policy denial, and the interview → spec → approval → dispatch flow.
+- **Settings and policies:** token validation against a changed Keycloak (real signed JWTs), the Open Policy Agent client against a local HTTP server, and fail-open/closed enforcement.
+- **Rego tests** (`opa test`) for every standard policy and for the read-only agent API; CI also checks formatting and strict compilation.
 
-**Browser end-to-end tests** (Playwright, [`e2e/`](e2e)) run the real stack: PostgreSQL, Keycloak with a test-only realm, a Git server, a Docker socket proxy, the backend and the nginx frontend. Chromium signs in through the actual Keycloak login form, and the suite covers:
+**Browser end-to-end tests** (Playwright, [`e2e/`](e2e)) run the real stack: PostgreSQL, Keycloak with a test-only realm, a Git server, Open Policy Agent, a Docker socket proxy, the backend and the nginx frontend. Chromium signs in through the actual Keycloak login form, and the suite covers:
 
 - **Authorization:** login redirect, rejected credentials, `401` without a token, a viewer receiving `403` on writes, and sign-out.
 - **The main flow:** register a repository with credentials (and reject a URL with embedded credentials), check the connection with a wrong and a right password, check that the password stays write-only when editing, run a project interview with an adaptive follow-up, generate three dependent specs, approve the root spec (then clone the pushed branch and check its files and its five commits), check DAG readiness, dispatch with the `UNKNOWN` no-retry outcome, and start a feature interview. The script fails if any Git job container is left behind.
 - **Navigation:** every sidebar section has its own URL, the back button works, and a bookmarked URL survives the Keycloak login.
+- **Settings and policies:** an administrator opens Settings from the sidebar, tests and saves Keycloak and the policy agent (wrong values are refused), other users see the page read-only, and a policy refuses a repository on a Git host that is not allowed.
 
 ```bash
 sh scripts/run-e2e.sh   # needs only Docker; builds, runs, and always tears the stack down
@@ -244,7 +271,7 @@ The HTML report and failure traces are written to `e2e/playwright-report/` and `
 
 ## 🔐 Security and privacy
 
-JWT validation and server-side roles are enabled. Git tokens are encrypted at rest (AES-256-GCM), write-only through the API, and only passed to the isolated job container; errors are masked. Git work runs in a disposable container with a read-only root filesystem, no capabilities and memory, process and time limits. OpenJCockpit HTTP outcomes are treated conservatively. Interview text and specifications may contain intellectual property: configure LLM and voice services according to your own data policy. In-browser speech recognition may send audio to a browser vendor. Do not send credentials, secrets or sensitive personal data in interview prompts.
+JWT validation and server-side roles are enabled, and Open Policy Agent governs repository changes, approvals and dispatch. Git tokens are encrypted at rest (AES-256-GCM), write-only through the API, and only passed to the isolated job container; errors are masked. Git work runs in a disposable container with a read-only root filesystem, no capabilities and memory, process and time limits. OpenJCockpit HTTP outcomes are treated conservatively. Interview text and specifications may contain intellectual property: configure LLM and voice services according to your own data policy. In-browser speech recognition may send audio to a browser vendor. Do not send credentials, secrets or sensitive personal data in interview prompts.
 
 Read [SECURITY.md](SECURITY.md), the [Kubernetes guide](docs/KUBERNETES.md) and [Production guidance](docs/PRODUCTION.md) before exposing this service. Containers run as non-root with read-only root filesystems and all capabilities dropped; health, metrics and versioned migrations are in place. Still missing for wider exposure: project-level permissions (every editor can write to every registered project, with its stored token), an audit trail, and automated upstream queue reconciliation. In Docker, the backend can create containers through the socket proxy, which is close to root on that host: run it on a dedicated host or use Kubernetes.
 

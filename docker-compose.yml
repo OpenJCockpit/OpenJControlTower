@@ -36,6 +36,12 @@ services:
       - "8418:8080"
     volumes:
       - git_data:/srv/git
+  # Open Policy Agent with the standard policies (infrastructure/opa/policies); its API is read-only.
+  # Rebuild after changing a policy: docker compose up -d --build opa
+  opa:
+    build: ./infrastructure/opa
+    ports:
+      - "8181:8181"
   # Only container and image calls reach Docker; the backend never sees the raw socket.
   docker-proxy:
     image: tecnativa/docker-socket-proxy:v0.4.1
@@ -75,6 +81,9 @@ services:
       DECISION_API_KEY: ${DECISION_API_KEY:-}
       CONTROLTOWER_EDITOR_ROLE: ${CONTROLTOWER_EDITOR_ROLE:-controltower-editor}
       CONTROLTOWER_ADMIN_ROLE: ${CONTROLTOWER_ADMIN_ROLE:-controltower-admin}
+      # Defaults for the settings page; values saved there take precedence.
+      OPA_ENABLED: ${OPA_ENABLED:-true}
+      OPA_URL: http://opa:8181
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,6 +92,8 @@ services:
       docker-proxy:
         condition: service_started
       git-server:
+        condition: service_started
+      opa:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"

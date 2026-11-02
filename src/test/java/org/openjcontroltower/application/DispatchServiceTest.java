@@ -15,7 +15,8 @@ class DispatchServiceTest {
     private final SpecService specs=mock(SpecService.class);
     private final CockpitQueueClient cockpit=mock(CockpitQueueClient.class);
     private final DecisionProvider decisions=mock(DecisionProvider.class);
-    private final DispatchService service=new DispatchService(store,specs,cockpit,decisions);
+    private final PolicyGuard policies=mock(PolicyGuard.class);
+    private final DispatchService service=new DispatchService(store,specs,cockpit,decisions,policies);
     private final Project project=new Project("p","Example","https://git.example.org/team/repo.git","main","NONE",null,false,"cockpit-1","wf-1");
     private final Spec a=spec("A"),b=spec("B"),c=spec("C"),notReady=spec("D");
 
@@ -52,6 +53,14 @@ class DispatchServiceTest {
         verify(store).recordDispatch("B","UNKNOWN","Request not yet reconciled");
         verify(store).updateDispatch("B","SENT","{\"id\":1}");
         verify(store).setSpecStatus("A","DISPATCHED");
+        verify(policies).check("queue.dispatch",PolicyGuard.resource("projectId","p","workflowId","wf-1","specIds",List.of("B","A")));
+    }
+    @Test void sendsNothingWhenAPolicyDeniesTheDispatch() {
+        givenReadyGraph();
+        doThrow(new PolicyGuard.PolicyDeniedException("Dispatch is frozen")).when(policies).check(eq("queue.dispatch"),anyMap());
+        assertThrows(PolicyGuard.PolicyDeniedException.class,()->service.dispatch("p",true));
+        verifyNoInteractions(cockpit);
+        verify(store,never()).recordDispatch(anyString(),anyString(),anyString());
     }
     @Test void haltsOnUnknownOutcomeWithoutRetry() {
         givenReadyGraph();

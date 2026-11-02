@@ -8,15 +8,18 @@ import org.openjcontroltower.infrastructure.GitSpecPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
+import java.util.regex.Pattern;
 
 @Service
 public class SpecService {
     private final DataStore store;
     private final AiAssistant ai;
     private final GitSpecPublisher publisher;
+    private final PolicyGuard policies;
     private final DagPlanner graph = new DagPlanner();
-    public SpecService(DataStore store,AiAssistant ai,GitSpecPublisher publisher) {
-        this.store=store;this.ai=ai;this.publisher=publisher;
+    private static final Pattern CRITERION=Pattern.compile("(?m)^\\s*[-*] \\[[ xX]\\] (.+)$");
+    public SpecService(DataStore store,AiAssistant ai,GitSpecPublisher publisher,PolicyGuard policies) {
+        this.store=store;this.ai=ai;this.publisher=publisher;this.policies=policies;
     }
     @Transactional
     public List<Spec> generate(String interviewId,String specTemplateId) {
@@ -59,7 +62,8 @@ public class SpecService {
             result.add(new Spec(ids.get(i),project.id(),p.title(),slug,"DRAFT",body,List.copyOf(dependencies),path,null));
         }
         graph.graph(concat(current,result));
-        result.forEach(store::saveSpec);
+        String author=CurrentUser.get().name();
+        result.forEach(spec->store.saveSpec(spec,author));
         store.saveInterview(new Interview(interview.id(),interview.projectId(),interview.templateId(),interview.kind(),
             interview.title(),"GENERATED",interview.answers(),interview.questionIndex(),interview.followUps(),""));
         return result;
@@ -81,6 +85,9 @@ public class SpecService {
         Spec s=store.spec(specId);
         if (!s.status().equals("DRAFT")) throw new IllegalArgumentException("Only DRAFT can be approved");
         graph.graph(store.specs(s.projectId()));
+        policies.check("spec.approve",PolicyGuard.resource("id",s.id(),"projectId",s.projectId(),"title",s.title(),
+            "body",s.body(),"dependsOn",s.dependsOn(),"createdBy",store.specCreator(specId),
+            "acceptanceCriteria",CRITERION.matcher(s.body()).results().map(m->m.group(1).strip()).toList()));
         Project project=store.project(s.projectId());
         GitSpecPublisher.Published published=publisher.publish(project,store.encryptedSecret(project.id()),s);
         store.setSpecPublished(specId,"APPROVED",published.branch(),published.commit());

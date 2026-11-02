@@ -40,6 +40,11 @@ The frontend has screens for:
 - spec review
 - the dependency graph
 - the queue
+- settings
+
+The **Settings** button below your user name in the lower left corner opens `/settings`. There, administrators choose the Keycloak instance users sign in with and configure Open Policy Agent; other users can only view the settings. The development user `developer` has the admin role. The stack includes Open Policy Agent with the standard policies (port 8181), enforcing by default. A denied action shows the policy's reasons, for example `Denied by policy: Git host github.com is not on the list of allowed Git hosts`. The policy values are in `infrastructure/opa/policies/openjcontroltower/config/data.json`; rebuild with `docker compose up -d --build opa` after a change.
+
+If a Keycloak change locks everyone out, start the backend with `KEYCLOAK_IGNORE_SAVED_SETTINGS=true` and fix the settings.
 
 Each screen has its own URL (for example `/specs` or `/graph`), so you can bookmark it. The selected project is kept in the URL as `?project=<id>`.
 
@@ -75,8 +80,9 @@ The MVP does not yet verify the status of the upstream queue automatically. Conf
 
 ## Testing
 
-- **Backend:** `mvn clean verify` requires **100% JaCoCo line coverage**, and the build meets it with 115 tests and no exclusions, verified with JDK 25 and Maven 3.9. The report is in `target/site/jacoco/index.html`.
+- **Backend:** `mvn clean verify` requires **100% JaCoCo line coverage**, and the build meets it with 151 tests and no exclusions, verified with JDK 25 and Maven 3.9. The report is in `target/site/jacoco/index.html`.
 - **Frontend:** build and test it with `npm run build` and `npm run test`.
+- **Policies:** `docker run --rm -v "$PWD/infrastructure/opa/policies:/policies:ro" openpolicyagent/opa:1.10.1-static test /policies`.
 - **Browser end-to-end tests:** run `sh scripts/run-e2e.sh`. They use Playwright with real Keycloak logins and push real spec branches to a test Git server. Only Docker is required, and the test environment is always removed afterwards.
 
 ## Kubernetes
@@ -92,6 +98,7 @@ Notes:
 - Keycloak is not included: use an existing realm.
 - The backend deliberately runs as a single replica.
 - Each approved spec is pushed from its own Kubernetes Job, which is deleted afterwards.
+- Open Policy Agent runs as its own Deployment (`open-policy-agent` component); publish its image from `infrastructure/opa` along with the others.
 
 The full procedure is in `docs/KUBERNETES.md`.
 

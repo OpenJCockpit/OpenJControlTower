@@ -67,6 +67,29 @@
         "mcr.microsoft.com/playwright"
       ],
       "groupName": "Playwright"
+    },
+    {
+      "description": "Update the Open Policy Agent image everywhere at once",
+      "matchDepNames": [
+        "openpolicyagent/opa"
+      ],
+      "groupName": "Open Policy Agent"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Open Policy Agent image used outside Dockerfiles (CI policy tests, docs)",
+      "fileMatch": [
+        "^\\.github/workflows/ci\\.yml$",
+        "^README\\.md$",
+        "^docs/QUICKSTART\\.md$"
+      ],
+      "matchStrings": [
+        "openpolicyagent/opa:(?<currentValue>[0-9][^\\s\"']*)"
+      ],
+      "depNameTemplate": "openpolicyagent/opa",
+      "datasourceTemplate": "docker"
     }
   ]
 }

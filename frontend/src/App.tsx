@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, AudioLines, Bot, Check, ChevronRight, CircleHelp, GitBranch, Pencil, LayoutDashboard, ListChecks, LogOut, Mic, Plus, Radio, RefreshCw, Send, ShieldCheck, Sparkles, Workflow } from 'lucide-react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
+import { Activity, AudioLines, Bot, Check, ChevronRight, CircleHelp, GitBranch, Pencil, LayoutDashboard, ListChecks, LogOut, Mic, Plus, Radio, RefreshCw, Send, Settings, ShieldCheck, Sparkles, Workflow } from 'lucide-react';
 import { api, keycloak } from './api/client';
 import type { components } from './generated/schema';
 import { type Page, urlFor, useLocationState } from './routing';
+import { SettingsPage } from './SettingsPage';
 import { type ConnectionCheckRequest, type ConnectionCheckResult, type ProjectRequest, RepositoryForm } from './RepositoryForm';
 
 type Models=components['schemas'];
@@ -113,17 +114,20 @@ export default function App() {
     setBusy(true);setNotice('');try{await action();await data.refresh();}
     catch(e){notify(e instanceof Error?e.message:String(e));}finally{setBusy(false);}
   };
-  const sectionTitle=nav.find(n=>n.key===page)?.label||'Overview';
+  const sectionTitle=page==='settings'?'Settings':nav.find(n=>n.key===page)?.label||'Overview';
+  // Plain links keep every page bookmarkable; a normal click navigates without a reload.
+  const navLink=(key:Page,label:string,Icon:typeof LayoutDashboard,style?:CSSProperties)=><a className={'nav-item '+(page===key?'active':'')} style={style} key={key} href={urlFor(key,selectedProject)} aria-current={page===key?'page':undefined} onClick={e=>{if(e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;e.preventDefault();setPage(key);}}><Icon size={17}/>{label}{page===key&&<ChevronRight size={14} className="tail"/>}</a>;
   return <div className="shell"><aside className="sidebar">
       <div className="brand"><div className="brand-icon"><Radio size={23}/></div><div><strong>OpenJ</strong><span>CONTROL TOWER</span></div></div>
       <div className="nav-heading">WORKSPACE</div>
-      <nav>{nav.map(n=><a className={'nav-item '+(page===n.key?'active':'')} key={n.key} href={urlFor(n.key,selectedProject)} aria-current={page===n.key?'page':undefined} onClick={e=>{if(e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;e.preventDefault();setPage(n.key);}}><n.icon size={17}/>{n.label}{page===n.key&&<ChevronRight size={14} className="tail"/>}</a>)}</nav>
+      <nav>{nav.map(n=>navLink(n.key,n.label,n.icon))}</nav>
       <div className="sidebar-footer"><div className="identity"><ShieldCheck size={17}/><span>{keycloak.tokenParsed?.preferred_username||'Authenticated'}</span></div>
+        {navLink('settings','Settings',Settings,{padding:0})}
         <button className="btn ghost" onClick={()=>void keycloak.logout()}><LogOut size={15}/>Sign out</button></div>
     </aside><main className="main">
       <header className="topbar"><div className="crumb">Workspace <ChevronRight size={13}/> {sectionTitle}</div><div className="top-actions"><span className="status-dot"/> Connected via Keycloak<button className="icon-btn" onClick={()=>void data.refresh()} title="Refresh"><RefreshCw size={17}/></button></div></header>
       <div className="content"><div className="page-heading"><div><div className="eyebrow">SPECIFICATION OPERATIONS</div><h1>{sectionTitle}</h1><p>Interview-first requirements, dependency-aware specs and governed delivery.</p></div>
-        {page!=='repositories'&&<select aria-label="Active project" value={selectedProject} onChange={e=>setSelectedProject(e.target.value)}><option value="">Select project</option>{data.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>}</div>
+        {page!=='repositories'&&page!=='settings'&&<select aria-label="Active project" value={selectedProject} onChange={e=>setSelectedProject(e.target.value)}><option value="">Select project</option>{data.projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>}</div>
       {notice&&<div className="notice" role="alert">{notice}<button onClick={()=>setNotice('')}>×</button></div>}
       {page==='overview'&&<><div className="stats"><div className="stat"><GitBranch/><span>Repositories</span><strong>{data.projects.length}</strong></div><div className="stat"><Bot/><span>Interviews</span><strong>{data.interviews.length}</strong></div><div className="stat"><Workflow/><span>Specifications</span><strong>{data.specs.length}</strong></div><div className="stat"><Send/><span>Ready to queue</span><strong>{data.queue.length}</strong></div></div>
         <div className="two-col"><section className="panel"><div className="panel-heading"><h2>How it works</h2><span className="pill">Guided workflow</span></div>
@@ -139,5 +143,6 @@ export default function App() {
       {page==='specs'&&<section className="panel"><div className="panel-heading"><h2>Specification registry</h2><span className="pill">{data.specs.length} files</span></div>{data.specs.length===0?<Empty text="Complete an interview and generate your first spec drafts."/>:data.specs.map(s=><details className="spec" key={s.id}><summary><div><b>{s.title}</b><small>{s.id} · specs/{s.specPath}{s.branch&&<> · branch {s.branch}</>}</small></div><span className={'state state-'+s.status.toLowerCase()}>{s.status}</span><ChevronRight size={15}/></summary><div className="spec-details"><p>Dependencies: {s.dependsOn.join(', ')||'None'}</p><pre>{s.body}</pre><div className="actions">{s.status==='DRAFT'&&<button disabled={busy} className="btn primary" onClick={()=>void operation(async()=>{const approved=await api<Spec>(`/specs/${s.id}/approve`,'POST');notify(`Spec pushed to branch ${approved.branch}. Merge it into the branch OpenJCockpit reads before dispatch.`);})}><Check size={14}/>Approve and push branch</button>}{s.status==='DISPATCHED'&&<button className="btn outline" onClick={()=>void operation(async()=>{await api<Spec>(`/specs/${s.id}/complete`,'POST');notify('Manually marked DONE. Verify OpenJCockpit first.');})}>Confirm externally completed</button>}</div></div></details>)}</section>}
       {page==='graph'&&<section className="panel"><div className="panel-heading"><h2>Directed acyclic graph</h2><span className="pill">Validated by Java</span></div><p className="muted">Arrows represent required predecessor completion, not simple associations.</p><GraphView graph={data.graph}/></section>}
       {page==='queue'&&<div className="two-col"><section className="panel"><div className="panel-heading"><h2>Ready work</h2><span className="pill">{data.queue.length} ready</span></div>{data.queue.length===0?<Empty text="Approve specs or finish their dependencies to enable dispatch."/>:data.queue.map((q,i)=><div className="queue-row" key={q.specId}><span className="queue-index">{i+1}</span><div><b>{q.title}</b><small>{q.path}</small><small>Priority {q.priority} · {q.reason}</small></div></div>)}</section><section className="panel"><h2>OpenJCockpit dispatch</h2><div className="hint"><ShieldCheck size={18}/><span>Dispatch is opt-in. Only ready, approved specs are sent. Dependent specs stay blocked until predecessors are DONE.</span></div><label className="checkbox"><input type="checkbox" checked={published} onChange={e=>setPublished(e.target.checked)}/> The spec branches are merged into the branch that OpenJCockpit reads.</label><button disabled={busy||!selectedProject||data.queue.length===0||!published} className="btn primary" onClick={()=>void operation(async()=>{const outcomes=await api<Array<{specId:string;result:string}>>(`/projects/${selectedProject}/queue/dispatch`,'POST',{repositoryPublished:true});notify(outcomes.map(o=>o.result).join(', '));})}><Send size={16}/>Dispatch ready specs</button><p className="muted">Uncertain HTTP outcomes are recorded as UNKNOWN, never automatically retried.</p></section></div>}
+      {page==='settings'&&<SettingsPage/>}
       <footer>OpenJControlTower · Apache-2.0 · Contract-first control plane · {project?.name||'No project selected'}</footer></div></main></div>;
 }

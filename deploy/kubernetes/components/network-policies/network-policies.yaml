@@ -61,3 +61,23 @@ spec:
       app.kubernetes.io/name: openjcontroltower
       app.kubernetes.io/component: git-job
   policyTypes: [Ingress]
+---
+# Only the backend asks Open Policy Agent for decisions.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openjcontroltower-opa
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openjcontroltower
+      app.kubernetes.io/component: opa
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openjcontroltower
+              app.kubernetes.io/component: backend
+      ports:
+        - port: 8181

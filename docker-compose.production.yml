@@ -25,6 +25,10 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Required}
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:?Required}
       KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:?Required}
+      # The web application signs in with the client the backend publishes (settings page default).
+      KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:?Required}
+      OPA_ENABLED: ${OPA_ENABLED:-true}
+      OPA_URL: http://opa:8181
       GIT_RUNNER: docker
       DOCKER_PROXY_URL: http://docker-proxy:2375
       GIT_JOB_DOCKER_NETWORK: openjcontroltower
@@ -46,6 +50,12 @@ services:
         condition: service_healthy
       docker-proxy:
         condition: service_started
+      opa:
+        condition: service_started
+  # Policies are part of the image; its REST API is read-only. Keep it on the internal network.
+  opa:
+    build: ./infrastructure/opa
+    read_only: true
   # Only container and image calls reach Docker. Creating containers is still powerful: keep this
   # proxy on the internal network and never publish its port.
   docker-proxy:

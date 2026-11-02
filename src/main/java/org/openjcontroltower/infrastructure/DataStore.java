@@ -25,6 +25,10 @@ public class DataStore {
         try { return mapper.readValue(value, type); }
         catch (JacksonException e) { throw new IllegalStateException(e); }
     }
+    private <T> T read(String value, Class<T> type) {
+        try { return mapper.readValue(value, type); }
+        catch (JacksonException e) { throw new IllegalStateException(e); }
+    }
     private <T> T single(List<T> records, String type) {
         if (records.isEmpty()) throw new IllegalArgumentException(type + " not found");
         return records.getFirst();
@@ -85,9 +89,15 @@ public class DataStore {
         return single(db.query("SELECT project_id FROM interviews WHERE id=?",(r,n)->r.getString(1),id)
             .stream().flatMap(p -> interviews(p).stream()).filter(i -> i.id().equals(id)).toList(), "Interview");
     }
-    public void saveSpec(Spec s) {
-        db.update("INSERT INTO specs(id,project_id,title,slug,status,body,dependencies_json,spec_path) VALUES(?,?,?,?,?,?,?,?)",
-            s.id(),s.projectId(),s.title(),s.slug(),s.status(),s.body(),json(s.dependsOn()),s.specPath());
+    public void saveSpec(Spec s) { saveSpec(s,null); }
+    /** {@code createdBy}: the user who generated the spec, or null when unknown. */
+    public void saveSpec(Spec s, String createdBy) {
+        db.update("INSERT INTO specs(id,project_id,title,slug,status,body,dependencies_json,spec_path,created_by) VALUES(?,?,?,?,?,?,?,?,?)",
+            s.id(),s.projectId(),s.title(),s.slug(),s.status(),s.body(),json(s.dependsOn()),s.specPath(),createdBy);
+    }
+    /** The user who generated the spec, or null when unknown. */
+    public String specCreator(String id) {
+        return single(db.query("SELECT created_by FROM specs WHERE id=?",(r,n)->Optional.ofNullable(r.getString(1)),id),"Spec").orElse(null);
     }
     public void setSpecStatus(String id, String state) { db.update("UPDATE specs SET status=? WHERE id=?",state,id); }
     public void setSpecPublished(String id, String state, String branch, String commit) {
@@ -102,6 +112,15 @@ public class DataStore {
     public Spec spec(String id) {
         List<String> projects = db.query("SELECT project_id FROM specs WHERE id=?",(r,n)->r.getString(1),id);
         return single(projects.stream().flatMap(p -> specs(p).stream()).filter(s -> s.id().equals(id)).toList(),"Spec");
+    }
+    public <T> Optional<T> setting(String name, Class<T> type) {
+        return db.query("SELECT value_json FROM settings WHERE name=?",(r,n)->r.getString(1),name).stream()
+            .findFirst().map(value -> read(value, type));
+    }
+    public void saveSetting(String name, Object value, String updatedBy) {
+        int updated = db.update("UPDATE settings SET value_json=?,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE name=?",json(value),updatedBy,name);
+        if (updated == 0)
+            db.update("INSERT INTO settings(name,value_json,updated_by,updated_at) VALUES(?,?,?,CURRENT_TIMESTAMP)",name,json(value),updatedBy);
     }
     public boolean hasDispatch(String specId) {
         return Optional.ofNullable(db.queryForObject("SELECT COUNT(*) FROM dispatch_log WHERE spec_id=?",Integer.class,specId)).orElse(0)>0;

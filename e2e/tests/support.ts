@@ -3,6 +3,7 @@ import { expect, type Page } from '@playwright/test';
 export const users = {
   editor: { username: 'e2e-editor', password: 'E2E-only-editor-1!' },
   viewer: { username: 'e2e-viewer', password: 'E2E-only-viewer-1!' },
+  admin: { username: 'e2e-admin', password: 'E2E-only-admin-1!' },
 } as const;
 
 /** Opens the app, follows the redirect to Keycloak and signs in through the real login form. */

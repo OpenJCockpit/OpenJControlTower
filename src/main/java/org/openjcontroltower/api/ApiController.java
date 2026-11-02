@@ -5,11 +5,17 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.openjcontroltower.application.DispatchService;
 import org.openjcontroltower.application.InterviewService;
+import org.openjcontroltower.application.CurrentUser;
 import org.openjcontroltower.application.ProjectService;
+import org.openjcontroltower.application.SettingsService;
 import org.openjcontroltower.application.SpecService;
 import org.openjcontroltower.domain.Models.*;
+import org.openjcontroltower.domain.Settings;
 import org.openjcontroltower.infrastructure.DataStore;
 import org.openjcontroltower.infrastructure.GitConnectionChecker;
+import org.openjcontroltower.infrastructure.KeycloakProbe;
+import org.openjcontroltower.infrastructure.OpenPolicyAgentClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import java.util.*;
@@ -22,10 +28,17 @@ public class ApiController {
     private final InterviewService interviews;
     private final SpecService specs;
     private final DispatchService dispatch;
-    public ApiController(DataStore db,ProjectService projects,InterviewService interviews,
-        SpecService specs,DispatchService dispatch) {
+    private final SettingsService settings;
+    private final String adminRole;
+    public ApiController(DataStore db,ProjectService projects,InterviewService interviews,SpecService specs,
+        DispatchService dispatch,SettingsService settings,@Value("${CONTROLTOWER_ADMIN_ROLE:controltower-admin}") String adminRole) {
         this.db=db;this.projects=projects;this.interviews=interviews;this.specs=specs;this.dispatch=dispatch;
+        this.settings=settings;this.adminRole=adminRole;
     }
+    /** What the web application needs to sign in; public because it is read before sign-in. */
+    public record AuthConfig(String url,String realm,String clientId) {}
+    /** {@code editable}: whether the current user may change the settings (the admin role). */
+    public record SettingsView(Settings.Keycloak keycloak,Settings.Policy policy,boolean editable) {}
     /** {@code secret} is write-only: it is never returned, and leaving it empty on update keeps the stored one. */
     public record ProjectRequest(@NotBlank String name,@NotBlank String gitUrl,String defaultBranch,
                                  @NotBlank String credentialType,String gitUsername,String secret,
@@ -44,6 +57,25 @@ public class ApiController {
     public record NewAnswer(@NotBlank String answer) {}
     public record DispatchRequest(boolean repositoryPublished) {}
 
+    @GetMapping("/public/auth-config") public AuthConfig authConfig() {
+        Settings.Keycloak keycloak=settings.keycloak();
+        return new AuthConfig(keycloak.url(),keycloak.realm(),keycloak.clientId());
+    }
+    @GetMapping("/settings") public SettingsView settings() {
+        return new SettingsView(settings.keycloak(),settings.policy(),CurrentUser.get().hasRole(adminRole));
+    }
+    @PutMapping("/settings/keycloak") public Settings.Keycloak updateKeycloak(@RequestBody Settings.Keycloak input) {
+        return settings.updateKeycloak(input);
+    }
+    @PostMapping("/settings/keycloak/test") public KeycloakProbe.Result testKeycloak(@RequestBody Settings.Keycloak input) {
+        return settings.testKeycloak(input);
+    }
+    @PutMapping("/settings/policy") public Settings.Policy updatePolicy(@RequestBody Settings.Policy input) {
+        return settings.updatePolicy(input);
+    }
+    @PostMapping("/settings/policy/test") public OpenPolicyAgentClient.Status testPolicy(@RequestBody Settings.Policy input) {
+        return settings.testPolicy(input);
+    }
     @GetMapping("/projects") public List<Project> projects() { return db.projects(); }
     @PostMapping("/projects") @ResponseStatus(HttpStatus.CREATED)
     public Project createProject(@Valid @RequestBody ProjectRequest input) { return projects.create(input.input()); }

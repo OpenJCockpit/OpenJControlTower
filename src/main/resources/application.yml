@@ -68,6 +68,19 @@ management:
     readinessstate:
       enabled: true
 controltower:
+  # Defaults for the settings page: values saved there take precedence.
+  keycloak:
+    # Public client the web application signs in with; the URL and realm come from KEYCLOAK_ISSUER_URI.
+    client-id: ${KEYCLOAK_CLIENT_ID:controltower-web}
+    # Recovery: true ignores the Keycloak settings saved on the settings page (for example after a wrong client ID).
+    ignore-saved: ${KEYCLOAK_IGNORE_SAVED_SETTINGS:false}
+  policy:
+    # Open Policy Agent decides on repository changes, spec approval and dispatch when enabled.
+    enabled: ${OPA_ENABLED:false}
+    url: ${OPA_URL:http://localhost:8181}
+    decision-path: ${OPA_DECISION_PATH:openjcontroltower/decision}
+    # false (fail closed): deny governed actions while the agent cannot be reached.
+    fail-open: ${OPA_FAIL_OPEN:false}
   git:
     # Where each spec's isolated Git job runs: docker (through a Docker socket proxy) or kubernetes (a Job per spec).
     runner: ${GIT_RUNNER:docker}

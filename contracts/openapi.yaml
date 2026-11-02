@@ -55,7 +55,11 @@ paths:
         '401':
           description: Unauthorized
         '403':
-          description: Forbidden
+          description: Missing role, or denied by an Open Policy Agent policy (the error names the reasons)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
       requestBody:
         required: true
         content:
@@ -86,7 +90,11 @@ paths:
         '401':
           description: Unauthorized
         '403':
-          description: Forbidden
+          description: Missing role, or denied by an Open Policy Agent policy (the error names the reasons)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
       requestBody:
         required: true
         content:
@@ -115,7 +123,11 @@ paths:
         '401':
           description: Unauthorized
         '403':
-          description: Forbidden
+          description: Missing role, or denied by an Open Policy Agent policy (the error names the reasons)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
       parameters:
       - name: id
         in: path
@@ -422,7 +434,11 @@ paths:
         '401':
           description: Unauthorized
         '403':
-          description: Forbidden
+          description: Missing role, or denied by an Open Policy Agent policy (the error names the reasons)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
       parameters:
       - name: id
         in: path
@@ -510,7 +526,11 @@ paths:
         '401':
           description: Unauthorized
         '403':
-          description: Forbidden
+          description: Missing role, or denied by an Open Policy Agent policy (the error names the reasons)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
       parameters:
       - name: projectId
         in: path
@@ -566,6 +586,151 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateSpecTemplate'
+  /api/public/auth-config:
+    get:
+      tags:
+      - Control Tower
+      operationId: getAuthConfig
+      security: []
+      description: Public. The Keycloak instance the web application signs in with, read before sign-in.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthConfig'
+  /api/settings:
+    get:
+      tags:
+      - Control Tower
+      operationId: getSettings
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingsView'
+        '401':
+          description: Unauthorized
+  /api/settings/keycloak:
+    put:
+      tags:
+      - Control Tower
+      operationId: updateKeycloakSettings
+      description: Admin only. Saved only when the signing keys can be fetched; tokens are validated against the new
+        issuer immediately, so users sign in again when the URL or realm changes.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeycloakSettings'
+        '400':
+          description: Invalid settings, or the Keycloak instance or policy agent did not answer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Requires the admin role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KeycloakSettings'
+  /api/settings/keycloak/test:
+    post:
+      tags:
+      - Control Tower
+      operationId: testKeycloakSettings
+      description: Admin only. Fetches the signing keys of the given settings without saving them.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeycloakCheckResult'
+        '400':
+          description: Invalid settings, or the Keycloak instance or policy agent did not answer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Requires the admin role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KeycloakSettings'
+  /api/settings/policy:
+    put:
+      tags:
+      - Control Tower
+      operationId: updatePolicySettings
+      description: Admin only. An enabled agent is saved only when it answers and has the decision.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicySettings'
+        '400':
+          description: Invalid settings, or the Keycloak instance or policy agent did not answer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Requires the admin role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicySettings'
+  /api/settings/policy/test:
+    post:
+      tags:
+      - Control Tower
+      operationId: testPolicySettings
+      description: Admin only. Checks the agent, lists its policies and looks up the decision, without saving.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyStatus'
+        '400':
+          description: Invalid settings, or the Keycloak instance or policy agent did not answer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Requires the admin role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicySettings'
 components:
   securitySchemes:
     bearerJwt:
@@ -573,6 +738,79 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    AuthConfig:
+      type: object
+      required: [url, realm, clientId]
+      properties:
+        url:
+          type: string
+        realm:
+          type: string
+        clientId:
+          type: string
+    KeycloakSettings:
+      type: object
+      required: [url, realm, clientId]
+      properties:
+        url:
+          type: string
+          description: Keycloak base URL as the browser reaches it. With the realm it forms the token issuer.
+        realm:
+          type: string
+        clientId:
+          type: string
+          description: Public client the web application signs in with.
+        backendUrl:
+          type: string
+          nullable: true
+          description: Optional. The Keycloak base URL as the backend reaches it, when that differs from url. The signing
+            keys are fetched from <backendUrl or url>/realms/<realm>/protocol/openid-connect/certs.
+    PolicySettings:
+      type: object
+      required: [enabled, url, decisionPath, failOpen]
+      properties:
+        enabled:
+          type: boolean
+        url:
+          type: string
+          description: Open Policy Agent base URL, for example http://opa:8181.
+        decisionPath:
+          type: string
+          description: Data path of the decision document, for example openjcontroltower/decision.
+        failOpen:
+          type: boolean
+          description: Allow governed actions while the agent cannot be reached. Default false (deny).
+    SettingsView:
+      type: object
+      required: [keycloak, policy, editable]
+      properties:
+        keycloak:
+          $ref: '#/components/schemas/KeycloakSettings'
+        policy:
+          $ref: '#/components/schemas/PolicySettings'
+        editable:
+          type: boolean
+          description: Whether the current user has the admin role and may change the settings.
+    KeycloakCheckResult:
+      type: object
+      required: [reachable, message]
+      properties:
+        reachable:
+          type: boolean
+        message:
+          type: string
+    PolicyStatus:
+      type: object
+      required: [reachable, message, policies]
+      properties:
+        reachable:
+          type: boolean
+        message:
+          type: string
+        policies:
+          type: array
+          items:
+            type: string
     Project:
       type: object
       description: A Git repository. The secret is write-only and never returned; hasSecret tells whether one is stored.

@@ -5,6 +5,10 @@ import org.junit.jupiter.api.Test;
 import org.openjcontroltower.infrastructure.DataStore;
 import org.openjcontroltower.infrastructure.GitConnectionChecker;
 import org.openjcontroltower.infrastructure.GitJobRunner;
+import org.openjcontroltower.infrastructure.KeycloakProbe;
+import org.openjcontroltower.infrastructure.OpenPolicyAgentClient;
+import org.openjcontroltower.domain.Settings;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -35,6 +39,8 @@ class ControlTowerIntegrationTest {
     /** The isolated container is out of scope here: the runner reports a successful push. */
     @MockitoBean GitJobRunner runner;
     @MockitoBean GitConnectionChecker checker;
+    @MockitoBean KeycloakProbe keycloakProbe;
+    @MockitoBean OpenPolicyAgentClient opa;
     @Autowired WebApplicationContext context;
     @Autowired DataStore store;
     private final JsonMapper json=JsonMapper.builder().build();
@@ -48,6 +54,14 @@ class ControlTowerIntegrationTest {
     private MockHttpServletRequestBuilder asEditor(MockHttpServletRequestBuilder request) {
         return request.with(jwt().authorities(new SimpleGrantedAuthority("ROLE_controltower-editor")))
             .contentType(MediaType.APPLICATION_JSON);
+    }
+    private MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {
+        return request.with(jwt().jwt(j->j.claim("preferred_username","root"))
+            .authorities(new SimpleGrantedAuthority("ROLE_controltower-admin"))).contentType(MediaType.APPLICATION_JSON);
+    }
+    private JsonNode admin(MockHttpServletRequestBuilder request,int status) throws Exception {
+        String body=mvc.perform(asAdmin(request)).andExpect(status().is(status)).andReturn().getResponse().getContentAsString();
+        return json.readTree(body);
     }
     private JsonNode call(MockHttpServletRequestBuilder request,int status) throws Exception {
         String body=mvc.perform(asEditor(request)).andExpect(status().is(status)).andReturn().getResponse().getContentAsString();
@@ -147,6 +161,46 @@ class ControlTowerIntegrationTest {
         // After a human has reconciled the run in OpenJCockpit, the spec can be acknowledged as DONE.
         store.setSpecStatus(first,"DISPATCHED");
         assertEquals("DONE",call(post("/api/specs/"+first+"/complete"),200).get("status").asText());
+    }
+    @Test void letsAdministratorsChangeKeycloakAndThePolicyAgent() throws Exception {
+        mvc.perform(get("/api/public/auth-config")).andExpect(status().isOk())
+            .andExpect(jsonPath("$.url").value("http://localhost:8081")).andExpect(jsonPath("$.realm").value("openjcontroltower"))
+            .andExpect(jsonPath("$.clientId").value("controltower-web"));
+        JsonNode view=call(get("/api/settings"),200);
+        assertFalse(view.get("editable").asBoolean());
+        assertFalse(view.get("policy").get("enabled").asBoolean());
+        assertTrue(admin(get("/api/settings"),200).get("editable").asBoolean());
+        String keycloak="{\"url\":\"https://id.example.org\",\"realm\":\"eng\",\"clientId\":\"web\"}";
+        call(put("/api/settings/keycloak").content(keycloak),403);
+        call(post("/api/settings/keycloak/test").content(keycloak),403);
+        when(keycloakProbe.check("https://id.example.org/realms/eng/protocol/openid-connect/certs"))
+            .thenReturn(new KeycloakProbe.Result(true,"Connected"));
+        assertTrue(admin(post("/api/settings/keycloak/test").content(keycloak),200).get("reachable").asBoolean());
+        Settings.Keycloak original=new Settings.Keycloak("http://localhost:8081","openjcontroltower","controltower-web",null);
+        when(keycloakProbe.check("http://localhost:8081/realms/openjcontroltower/protocol/openid-connect/certs"))
+            .thenReturn(new KeycloakProbe.Result(true,"Connected"));
+        try {
+            admin(put("/api/settings/keycloak").content(keycloak),200);
+            mvc.perform(get("/api/public/auth-config")).andExpect(jsonPath("$.url").value("https://id.example.org"))
+                .andExpect(jsonPath("$.realm").value("eng"));
+            assertEquals("root",store.setting("keycloak",Settings.Keycloak.class).map(k->"root").orElseThrow());
+        } finally { admin(put("/api/settings/keycloak").content(json.writeValueAsString(original)),200); }
+
+        String policy="{\"enabled\":true,\"url\":\"http://opa:8181\",\"decisionPath\":\"openjcontroltower/decision\",\"failOpen\":false}";
+        Settings.Policy enabled=new Settings.Policy(true,"http://opa:8181","openjcontroltower/decision",false);
+        when(opa.status(enabled)).thenReturn(new OpenPolicyAgentClient.Status(true,"Connected",List.of("decision.rego")));
+        assertEquals("decision.rego",admin(post("/api/settings/policy/test").content(policy),200).get("policies").get(0).asText());
+        call(put("/api/settings/policy").content(policy),403);
+        try {
+            admin(put("/api/settings/policy").content(policy),200);
+            when(opa.decide(eq(enabled),anyMap())).thenReturn(new OpenPolicyAgentClient.Decision(false,List.of("Git host x is not allowed")));
+            assertEquals("Denied by policy: Git host x is not allowed",
+                call(post("/api/projects").content(project("Denied","https://x.example/r.git","NONE",null)),403).get("error").asText());
+            verify(opa).decide(eq(enabled),argThat(input->input.get("action").equals("repository.save")));
+        } finally {
+            admin(put("/api/settings/policy").content(policy.replace("true,","false,")),200);
+        }
+        assertFalse(call(get("/api/settings"),200).get("policy").get("enabled").asBoolean());
     }
     @Test void generatesWithDefaultTemplateWhenNoBodyIsSent() throws Exception {
         JsonNode project=call(post("/api/projects").content(project("Second","https://git.example.org/second.git","NONE",null)),201);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-export type Page='overview'|'repositories'|'templates'|'interview'|'specs'|'graph'|'queue';
+export type Page='overview'|'repositories'|'templates'|'interview'|'specs'|'graph'|'queue'|'settings';
 
 /** One bookmarkable path per sidebar section. */
 export const pagePaths: Record<Page,string>={
@@ -11,6 +11,7 @@ export const pagePaths: Record<Page,string>={
   specs:'/specs',
   graph:'/graph',
   queue:'/queue',
+  settings:'/settings',
 };
 
 export function pageFromPath(pathname:string):Page {

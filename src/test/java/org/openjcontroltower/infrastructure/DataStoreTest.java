@@ -78,6 +78,20 @@ class DataStoreTest {
         assertEquals(List.of("SPEC-0"),stored.dependsOn());
         assertEquals(List.of(stored),store.specs("p"));
         assertThrows(IllegalArgumentException.class,()->store.spec("missing"));
+        assertNull(store.specCreator("SPEC-1"));
+        store.saveSpec(new Spec("SPEC-2","p","Two","two","DRAFT","# Two",List.of(),"002-two/spec.md",null),"alice");
+        assertEquals("alice",store.specCreator("SPEC-2"));
+        assertThrows(IllegalArgumentException.class,()->store.specCreator("missing"));
+    }
+    @Test void storesSettingsAsJson() {
+        record Value(String url,boolean enabled) {}
+        assertTrue(store.setting("x",Value.class).isEmpty());
+        store.saveSetting("x",new Value("http://a",true),"alice");
+        store.saveSetting("x",new Value("http://b",false),"bob");
+        assertEquals(new Value("http://b",false),store.setting("x",Value.class).orElseThrow());
+        assertEquals("bob",jdbc.queryForObject("SELECT updated_by FROM settings WHERE name='x'",String.class));
+        jdbc.update("UPDATE settings SET value_json='not-json'");
+        assertThrows(IllegalStateException.class,()->store.setting("x",Value.class));
     }
     @Test void tracksDispatchReservations() {
         assertFalse(store.hasDispatch("SPEC-1"));
