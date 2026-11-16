@@ -58,7 +58,13 @@ public class ProjectService {
         requireSameHost(store.project(projectId).gitUrl(),url);
         return checker.check(url,username,cipher.decrypt(stored));
     }
+    /** One repository per OpenJCockpit project: the project's pages in the dashboard resolve it by this ID. */
+    private void requireUniqueCockpitProject(Project project) {
+        if (store.projects().stream().anyMatch(p->p.cockpitProjectId().equals(project.cockpitProjectId()) && !p.id().equals(project.id())))
+            throw new IllegalStateException("OpenJCockpit project "+project.cockpitProjectId()+" already has a repository");
+    }
     private void checkSave(Project project) {
+        requireUniqueCockpitProject(project);
         policies.check("repository.save",PolicyGuard.resource("projectId",project.id(),"name",project.name(),
             "gitUrl",project.gitUrl(),"host",host(project.gitUrl()),"defaultBranch",project.defaultBranch(),
             "credentialType",project.credentialType()));

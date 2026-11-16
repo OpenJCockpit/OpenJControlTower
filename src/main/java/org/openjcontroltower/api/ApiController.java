@@ -13,7 +13,6 @@ import org.openjcontroltower.domain.Models.*;
 import org.openjcontroltower.domain.Settings;
 import org.openjcontroltower.infrastructure.DataStore;
 import org.openjcontroltower.infrastructure.GitConnectionChecker;
-import org.openjcontroltower.infrastructure.KeycloakProbe;
 import org.openjcontroltower.infrastructure.OpenPolicyAgentClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -31,14 +30,12 @@ public class ApiController {
     private final SettingsService settings;
     private final String adminRole;
     public ApiController(DataStore db,ProjectService projects,InterviewService interviews,SpecService specs,
-        DispatchService dispatch,SettingsService settings,@Value("${CONTROLTOWER_ADMIN_ROLE:controltower-admin}") String adminRole) {
+        DispatchService dispatch,SettingsService settings,@Value("${CONTROLTOWER_ADMIN_ROLE:openjcockpit-admin}") String adminRole) {
         this.db=db;this.projects=projects;this.interviews=interviews;this.specs=specs;this.dispatch=dispatch;
         this.settings=settings;this.adminRole=adminRole;
     }
-    /** What the web application needs to sign in; public because it is read before sign-in. */
-    public record AuthConfig(String url,String realm,String clientId) {}
     /** {@code editable}: whether the current user may change the settings (the admin role). */
-    public record SettingsView(Settings.Keycloak keycloak,Settings.Policy policy,boolean editable) {}
+    public record SettingsView(Settings.Policy policy,boolean editable) {}
     /** {@code secret} is write-only: it is never returned, and leaving it empty on update keeps the stored one. */
     public record ProjectRequest(@NotBlank String name,@NotBlank String gitUrl,String defaultBranch,
                                  @NotBlank String credentialType,String gitUsername,String secret,
@@ -57,18 +54,8 @@ public class ApiController {
     public record NewAnswer(@NotBlank String answer) {}
     public record DispatchRequest(boolean repositoryPublished) {}
 
-    @GetMapping("/public/auth-config") public AuthConfig authConfig() {
-        Settings.Keycloak keycloak=settings.keycloak();
-        return new AuthConfig(keycloak.url(),keycloak.realm(),keycloak.clientId());
-    }
     @GetMapping("/settings") public SettingsView settings() {
-        return new SettingsView(settings.keycloak(),settings.policy(),CurrentUser.get().hasRole(adminRole));
-    }
-    @PutMapping("/settings/keycloak") public Settings.Keycloak updateKeycloak(@RequestBody Settings.Keycloak input) {
-        return settings.updateKeycloak(input);
-    }
-    @PostMapping("/settings/keycloak/test") public KeycloakProbe.Result testKeycloak(@RequestBody Settings.Keycloak input) {
-        return settings.testKeycloak(input);
+        return new SettingsView(settings.policy(),CurrentUser.get().hasRole(adminRole));
     }
     @PutMapping("/settings/policy") public Settings.Policy updatePolicy(@RequestBody Settings.Policy input) {
         return settings.updatePolicy(input);
@@ -76,7 +63,10 @@ public class ApiController {
     @PostMapping("/settings/policy/test") public OpenPolicyAgentClient.Status testPolicy(@RequestBody Settings.Policy input) {
         return settings.testPolicy(input);
     }
-    @GetMapping("/projects") public List<Project> projects() { return db.projects(); }
+    /** {@code cockpitProjectId} narrows the list to the repository of one OpenJCockpit project (at most one). */
+    @GetMapping("/projects") public List<Project> projects(@RequestParam(required=false) String cockpitProjectId) {
+        return cockpitProjectId==null?db.projects():db.projects().stream().filter(p->p.cockpitProjectId().equals(cockpitProjectId)).toList();
+    }
     @PostMapping("/projects") @ResponseStatus(HttpStatus.CREATED)
     public Project createProject(@Valid @RequestBody ProjectRequest input) { return projects.create(input.input()); }
     @PutMapping("/projects/{id}")

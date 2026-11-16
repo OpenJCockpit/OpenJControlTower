@@ -41,6 +41,34 @@ class DataStoreTest {
         assertEquals("Project not found",assertThrows(IllegalArgumentException.class,()->store.project("x")).getMessage());
         assertThrows(IllegalArgumentException.class,()->store.encryptedSecret("x"));
     }
+    @Test void refusesASecondRepositoryForTheSameCockpitProject() {
+        store.saveProject(new Project("1","A","https://git.example.org/a.git","main","NONE",null,false,"c","w"),null);
+        assertThrows(org.springframework.dao.DuplicateKeyException.class,
+            ()->store.saveProject(new Project("2","B","https://git.example.org/b.git","main","NONE",null,false,"c","w"),null));
+    }
+    @Test void migrationListsDuplicateCockpitProjectsInsteadOfPickingOne() {
+        DriverManagerDataSource dataSource=new DriverManagerDataSource(
+            "jdbc:h2:mem:"+UUID.randomUUID()+";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1","sa","");
+        Flyway.configure().dataSource(dataSource).target("4").load().migrate();
+        JdbcTemplate old=new JdbcTemplate(dataSource);
+        for (String id:List.of("1","2","3"))
+            old.update("INSERT INTO projects(id,name,cockpit_project_id,workflow_id) VALUES(?,?,?,?)",id,"P"+id,id.equals("3")?"solo":"dup","w");
+        var error=assertThrows(Exception.class,()->Flyway.configure().dataSource(dataSource).load().migrate());
+        Throwable cause=error;
+        while (cause.getCause()!=null) cause=cause.getCause();
+        assertTrue(cause.getMessage().contains("dup (2 repositories)"),cause.getMessage());
+        assertFalse(cause.getMessage().contains("solo"));
+    }
+    @Test void migrationDropsStoredKeycloakSettings() {
+        DriverManagerDataSource dataSource=new DriverManagerDataSource(
+            "jdbc:h2:mem:"+UUID.randomUUID()+";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1","sa","");
+        Flyway.configure().dataSource(dataSource).target("3").load().migrate();
+        JdbcTemplate old=new JdbcTemplate(dataSource);
+        for (String name:List.of("keycloak","policy"))
+            old.update("INSERT INTO settings(name,value_json,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)",name,"{}");
+        Flyway.configure().dataSource(dataSource).load().migrate();
+        assertEquals(List.of("policy"),old.queryForList("SELECT name FROM settings",String.class));
+    }
     @Test void storesTemplatesWithQuestions() {
         Template template=new Template("t","Discovery","PROJECT",List.of(new Question("goal","Goal?",true,2,"Measurable")));
         store.saveTemplate(template);

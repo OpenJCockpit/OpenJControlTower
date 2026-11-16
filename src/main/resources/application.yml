@@ -26,8 +26,11 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/openjcontroltower}
-          jwk-set-uri: ${KEYCLOAK_JWKS_URI:http://localhost:8081/realms/openjcontroltower/protocol/openid-connect/certs}
+          # Tokens come from the OpenJCockpit realm: users sign in to the Cockpit dashboard.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/openjcockpit}
+          jwk-set-uri: ${KEYCLOAK_JWKS_URI:http://localhost:8080/realms/openjcockpit/protocol/openid-connect/certs}
+          # The Cockpit realm adds this audience to the tokens of the dashboard client.
+          audiences: ${KEYCLOAK_AUDIENCE:openjcontroltower}
       client:
         registration:
           openjcockpit:
@@ -37,7 +40,7 @@ spring:
             authorization-grant-type: client_credentials
         provider:
           openjcockpit:
-            token-uri: ${COCKPIT_TOKEN_URI:http://localhost:8081/realms/openjcontroltower/protocol/openid-connect/token}
+            token-uri: ${COCKPIT_TOKEN_URI:http://localhost:8080/realms/openjcockpit/protocol/openid-connect/token}
   ai:
     openai:
       api-key: ${OPENAI_API_KEY:unused-in-demo-mode}
@@ -68,12 +71,7 @@ management:
     readinessstate:
       enabled: true
 controltower:
-  # Defaults for the settings page: values saved there take precedence.
-  keycloak:
-    # Public client the web application signs in with; the URL and realm come from KEYCLOAK_ISSUER_URI.
-    client-id: ${KEYCLOAK_CLIENT_ID:controltower-web}
-    # Recovery: true ignores the Keycloak settings saved on the settings page (for example after a wrong client ID).
-    ignore-saved: ${KEYCLOAK_IGNORE_SAVED_SETTINGS:false}
+  # Defaults for the policy settings: values saved there take precedence.
   policy:
     # Open Policy Agent decides on repository changes, spec approval and dispatch when enabled.
     enabled: ${OPA_ENABLED:false}

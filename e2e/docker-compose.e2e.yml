@@ -55,6 +55,9 @@ services:
       # The browser reaches Keycloak as http://keycloak:8080, so that is the token issuer.
       KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/openjcontroltower
       KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/openjcontroltower/protocol/openid-connect/certs
+      # The test realm keeps its own roles; the test client adds the audience through a mapper.
+      CONTROLTOWER_EDITOR_ROLE: controltower-editor
+      CONTROLTOWER_ADMIN_ROLE: controltower-admin
       GIT_RUNNER: docker
       DOCKER_PROXY_URL: http://docker-proxy:2375
       GIT_JOB_DOCKER_NETWORK: ojct-e2e

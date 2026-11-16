@@ -17,8 +17,8 @@ class SecurityConfigurationTest {
     private static Jwt.Builder token() { return Jwt.withTokenValue("t").header("alg","none").subject("user"); }
 
     @Test void mapsKeycloakRealmRolesAndScopes() {
-        Jwt jwt=token().claim("scope","profile").claim("realm_access",Map.of("roles",List.of("controltower-editor","offline"))).build();
-        assertEquals(List.of("ROLE_controltower-editor","ROLE_offline","SCOPE_profile"),authorities(jwt));
+        Jwt jwt=token().claim("scope","profile").claim("realm_access",Map.of("roles",List.of("openjcockpit-operator","offline"))).build();
+        assertEquals(List.of("ROLE_offline","ROLE_openjcockpit-operator","SCOPE_profile"),authorities(jwt));
     }
     @Test void toleratesMissingOrMalformedRealmAccess() {
         assertEquals(List.of("SCOPE_profile"),authorities(token().claim("scope","profile").build()));

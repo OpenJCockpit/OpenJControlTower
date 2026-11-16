@@ -28,7 +28,7 @@ OpenJControlTower is an open-source **interview-first control plane** for specif
 - **Dependency DAG:** Kahn-based topological ordering, missing-edge, duplicate-edge and cycle validation. Only approved specs whose dependencies are DONE are ready.
 - **Decision adapters:** deterministic fallback, or opt-in Jev/Laya `/v1/systemone` ranking for ready nodes.
 - **OpenJCockpit dispatch:** service-to-service OAuth2 client credentials; queue operation using `specFile` and `workflowId`, failure-conservative deduplication.
-- **Keycloak:** OAuth2/OIDC JWT resource server, browser Authorization Code + PKCE, configurable issuer and roles. Administrators can switch the Keycloak instance, realm and client on the **Settings** page (`/settings`) at runtime; the signing keys are checked before a change is saved.
+- **Keycloak:** OAuth2/OIDC JWT resource server for the OpenJCockpit realm (`openjcockpit`): the issuer, the audience `openjcontroltower` and the roles are validated. Users sign in to the OpenJCockpit dashboard; there is no runtime Keycloak switching.
 - **Policy as code:** Open Policy Agent decides on saving and checking repositories, approving specs and dispatching. Standard Rego policies ship in [`infrastructure/opa/policies`](infrastructure/opa/policies): writer roles, allowed Git hosts, four-eyes approval, minimum acceptance criteria, secret detection in specs, a dispatch freeze and dispatch roles. A denial names its reasons. The agent's URL, decision path and fail-open/closed behaviour are set on the Settings page.
 - **Contract-first development:** `contracts/openapi.yaml` plus generated frontend TypeScript types, with Spring `/v3/api-docs` for runtime inspection.
 - **Kubernetes-ready operations:** Flyway-versioned schema, liveness/readiness probes, Prometheus metrics, structured JSON logs, graceful shutdown, bounded outbound HTTP timeouts, non-root read-only containers and Kustomize manifests that pass the `restricted` Pod Security Standard.
@@ -57,7 +57,8 @@ A condensed walkthrough is also available in the [quickstart](docs/QUICKSTART.md
 ### Prerequisites
 - Docker Engine and `docker compose` plugin
 - Git
-- Ports **4000**, **8080**, **8081**, **8418** free
+- Ports **4000**, **9180**, **8418** free. The backend is published on **9180** because 8080 is OpenJCockpit's Keycloak, which issues the tokens; the OpenJCockpit stack must be running
+- (The bundled web UI and its dev Keycloak are being replaced by the OpenJCockpit dashboard; see `docs/CONTROLTOWER_FRONTEND_MIGRATION_PLAN.md`.)
 
 ```bash
 cp .env.example .env
@@ -195,13 +196,11 @@ openjcontroltower/
 
 | Variable | Purpose |
 |---|---|
-| `KEYCLOAK_ISSUER_URI` | Exact external JWT `iss` (`<Keycloak URL>/realms/<realm>`), can point to OpenJCockpit's realm. Default for the Settings page |
-| `KEYCLOAK_JWKS_URI` | `<URL>/realms/<realm>/protocol/openid-connect/certs` as the backend reaches Keycloak. Default for the Settings page |
-| `KEYCLOAK_CLIENT_ID` | Public client the web application signs in with (default `controltower-web`). Default for the Settings page |
-| `KEYCLOAK_IGNORE_SAVED_SETTINGS` | Recovery: `true` ignores the Keycloak settings saved on the Settings page, for example after a wrong client ID locked everyone out |
-| `VITE_KEYCLOAK_URL`, `VITE_KEYCLOAK_REALM`, `VITE_KEYCLOAK_CLIENT_ID` | Fallback only: the web application first reads the Keycloak settings from the backend (`/api/public/auth-config`); if that fails, it uses `/config.js` (`window.__OJCT_CONFIG__`) and then these build-time values |
+| `KEYCLOAK_ISSUER_URI` | Exact external JWT `iss` (`<Keycloak URL>/realms/<realm>`). Default `http://localhost:8080/realms/openjcockpit` (the OpenJCockpit realm) |
+| `KEYCLOAK_JWKS_URI` | `<URL>/realms/<realm>/protocol/openid-connect/certs` as the backend reaches Keycloak (in Compose, through `host.docker.internal`) |
+| `KEYCLOAK_AUDIENCE` | Required `aud` of every token (default `openjcontroltower`). The OpenJCockpit realm adds it to the tokens of client `openjcockpit`; other tokens get `401` |
 | `OPA_ENABLED`, `OPA_URL`, `OPA_DECISION_PATH`, `OPA_FAIL_OPEN` | Open Policy Agent defaults for the Settings page (default off, `http://localhost:8181`, `openjcontroltower/decision`, fail closed). Compose and the Kubernetes overlay enable it |
-| `CONTROLTOWER_EDITOR_ROLE`, `CONTROLTOWER_ADMIN_ROLE` | Configurable write-authorized realm roles. Only the admin role may change the Settings page |
+| `CONTROLTOWER_EDITOR_ROLE`, `CONTROLTOWER_ADMIN_ROLE` | Realm roles for writes (default `openjcockpit-operator`) and for the policy settings (default `openjcockpit-admin`). An admin may also write. Any signed-in user can read |
 | `COCKPIT_TOKEN_URI`, `COCKPIT_CLIENT_ID`, `COCKPIT_CLIENT_SECRET` | Separate service-account authorization for queue dispatch |
 | `COCKPIT_BASE_URL`, `COCKPIT_ENABLED` | OpenJCockpit endpoint / opt-in dispatch switch |
 | `GIT_CREDENTIALS_SECRET`, `GIT_CREDENTIALS_SALT` | **Required.** Key (32+ characters) and hex salt that encrypt the Git tokens stored per repository |
@@ -215,7 +214,7 @@ openjcontroltower/
 | `API_DOCS_ENABLED` | Serve `/v3/api-docs` and Swagger UI (default `true`; `false` in Kubernetes) |
 | `LOGGING_STRUCTURED_FORMAT_CONSOLE` | Set to `ecs` (Kubernetes default) or `logstash` for JSON logs |
 
-Values saved on the Settings page are stored in the database and take precedence over these environment variables. Keycloak changes apply to every user at once; when the URL or realm changes, everyone signs in again.
+Values saved on the Settings page are stored in the database and take precedence over these environment variables.
 
 ### Policies
 
@@ -223,7 +222,7 @@ The backend is the policy enforcement point. Before each governed step it posts 
 
 | Policy | Default |
 |---|---|
-| Writer roles: every governed action needs `controltower-editor` or `controltower-admin` | On |
+| Writer roles: every governed action needs `openjcockpit-operator` or `openjcockpit-admin` | On |
 | Allowed Git hosts for repositories and connection checks | Every host (empty list) |
 | Four-eyes: whoever generated a spec may not approve it | Off |
 | Minimum acceptance criteria per spec | 2 |

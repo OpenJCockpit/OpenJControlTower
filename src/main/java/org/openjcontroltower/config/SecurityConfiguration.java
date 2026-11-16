@@ -22,13 +22,11 @@ import java.util.*;
 @Configuration
 public class SecurityConfiguration {
     @Bean
-    SecurityFilterChain security(HttpSecurity http,@Value("${CONTROLTOWER_EDITOR_ROLE:controltower-editor}") String editor,
-        @Value("${CONTROLTOWER_ADMIN_ROLE:controltower-admin}") String admin) throws Exception {
+    SecurityFilterChain security(HttpSecurity http,@Value("${CONTROLTOWER_EDITOR_ROLE:openjcockpit-operator}") String editor,
+        @Value("${CONTROLTOWER_ADMIN_ROLE:openjcockpit-admin}") String admin) throws Exception {
         http.csrf(csrf->csrf.disable()).sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth->auth
                 .requestMatchers("/actuator/health","/actuator/health/**","/actuator/info","/actuator/prometheus","/v3/api-docs/**","/swagger-ui/**","/swagger-ui.html").permitAll()
-                // The web application reads the Keycloak settings before anyone has signed in.
-                .requestMatchers(HttpMethod.GET,"/api/public/auth-config").permitAll()
                 .requestMatchers(HttpMethod.GET,"/api/**").authenticated()
                 .requestMatchers("/api/settings/**").hasAuthority("ROLE_"+admin)
                 .requestMatchers("/api/**").hasAnyAuthority("ROLE_"+editor,"ROLE_"+admin)
