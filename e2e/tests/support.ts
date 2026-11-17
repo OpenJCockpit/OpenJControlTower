@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type APIRequestContext } from '@playwright/test';
 
 export const users = {
   editor: { username: 'e2e-editor', password: 'E2E-only-editor-1!' },
@@ -6,20 +6,30 @@ export const users = {
   admin: { username: 'e2e-admin', password: 'E2E-only-admin-1!' },
 } as const;
 
-/** Opens the app, follows the redirect to Keycloak and signs in through the real login form. */
-export async function signIn(page: Page, user: { username: string; password: string }) {
-  await page.goto('/');
-  await expect(page).toHaveURL(/\/realms\/openjcontroltower\/protocol\/openid-connect\/auth/);
-  await page.locator('#username').fill(user.username);
-  await page.locator('#password').fill(user.password);
-  await page.locator('#kc-login').click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
-  await expect(page.locator('.identity')).toContainText(user.username);
+const keycloak = process.env.KEYCLOAK_URL ?? 'http://keycloak:8080';
+const realm = 'openjcontroltower';
+const clientId = 'controltower-web';
+
+type Credentials = { username: string; password: string };
+const cache = new Map<string, Promise<string>>();
+
+/** Signs in against the real Keycloak (test-only password grant) and returns the access token. */
+export function accessToken(request: APIRequestContext, user: Credentials): Promise<string> {
+  let token = cache.get(user.username);
+  if (!token) {
+    token = (async () => {
+      const response = await request.post(`${keycloak}/realms/${realm}/protocol/openid-connect/token`, {
+        form: { grant_type: 'password', client_id: clientId, username: user.username, password: user.password },
+      });
+      expect(response.status(), `token for ${user.username}`).toBe(200);
+      return (await response.json()).access_token as string;
+    })();
+    cache.set(user.username, token);
+  }
+  return token;
 }
 
-export async function openSection(page: Page, name: string) {
-  await page.locator('nav').getByRole('link', { name }).click();
-  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+/** Authorization header for the given user. */
+export async function as(request: APIRequestContext, user: Credentials) {
+  return { Authorization: `Bearer ${await accessToken(request, user)}` };
 }
-
-export const alert = (page: Page) => page.getByRole('alert');

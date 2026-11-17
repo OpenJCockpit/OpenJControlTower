@@ -745,7 +745,7 @@ components:
           type: boolean
         cockpitProjectId:
           type: string
-          description: The OpenJCockpit project this repository belongs to. Unique: one repository per project.
+          description: The OpenJCockpit project this repository belongs to. Unique, so there is one repository per project.
         workflowId:
           type: string
       required:
@@ -1115,4 +1115,3 @@ components:
       properties:
         specTemplateId:
           type: string
-      required: []

@@ -13,11 +13,11 @@ OpenJControlTower is ready for a **first run on Kubernetes for a trusted team**:
 | Outbound HTTP | Connect/read timeouts (`HTTP_CONNECT_TIMEOUT` 5s, `HTTP_READ_TIMEOUT` 30s) on OpenJCockpit and decision-provider calls, so a hung upstream cannot block dispatch indefinitely. |
 | Errors | 5xx responses never include exception messages or stack traces. Validation and conflict errors return explicit messages. |
 | Git | Repositories are configured with an HTTPS URL and credentials. Tokens are encrypted at rest (AES-256-GCM) and write-only through the API. Each approval runs in a disposable container or Kubernetes Job (read-only root filesystem, no capabilities, memory/process/time limits) that pushes the branch `spec/<spec id>` with one commit per file, and is then removed. |
-| Containers | Numeric non-root UIDs (backend 10001, frontend 101), read-only root filesystem, all capabilities dropped, seccomp `RuntimeDefault`, the `restricted` Pod Security Standard, and no ServiceAccount token mounted. |
+| Containers | Numeric non-root UIDs (backend 10001), read-only root filesystem, all capabilities dropped, seccomp `RuntimeDefault`, the `restricted` Pod Security Standard, and no ServiceAccount token mounted. |
 | Proxying | `X-Forwarded-*` headers honoured (`FORWARD_HEADERS_STRATEGY`); nginx security headers; `/config.js` served `no-store`. |
 | Configuration | Environment-neutral images. Backend settings come from a ConfigMap and Secret. The Keycloak instance and the policy agent can be changed by administrators on the Settings page; the browser reads the Keycloak settings from the backend. |
 | Policies | Open Policy Agent governs saving and checking repositories, approving specs and dispatching, with standard Rego policies (writer roles, allowed Git hosts, four-eyes, acceptance criteria, secret detection, dispatch freeze and roles). Fail closed by default; the agent's API is read-only. |
-| Quality gate | `mvn clean verify` enforces 100% JaCoCo line coverage. Playwright browser E2E tests run against a real Keycloak. CI renders the Kubernetes manifests and publishes images only after every check passes. |
+| Quality gate | `mvn clean verify` enforces 100% JaCoCo line coverage. Playwright API E2E tests run against a real Keycloak. CI renders the Kubernetes manifests and publishes images only after every check passes. |
 
 ## Still required before wider exposure
 
@@ -31,7 +31,7 @@ OpenJControlTower is ready for a **first run on Kubernetes for a trusted team**:
 8. **Authorization:** every user with the editor role can currently write to every registered project. Per-project ACLs (CT-0003) and an audit trail (CT-0004) are needed before multiple teams share an instance.
 9. **AI and decision providers:** set `AI_ENABLED=true` or a Laya/Jev provider only after a review of data residency, classification, retention, prompt injection and cost controls. Interview text and spec bodies leave the cluster.
 10. **Dispatch:** verify that OpenJCockpit can read the pushed branch and that workflow IDs match. A 2xx enqueue response does not mean the implementation is complete. `UNKNOWN` outcomes need manual reconciliation (CT-0002).
-11. **Supply chain:** pin images by digest, scan the images (for example with Trivy or Grype), and add SAST/DAST to CI. The browser E2E suite already runs in CI.
+11. **Supply chain:** pin images by digest, scan the images (for example with Trivy or Grype), and add SAST/DAST to CI. The API E2E suite already runs in CI.
 12. **Capacity:** the backend runs as a single replica by design (in-process dispatch lock). Size its memory from observed usage. Plan for the short downtime of a `Recreate` rollout.
 
 If you share a Keycloak instance with OpenJCockpit, use its issuer and realm-role conventions, and make sure Cockpit explicitly accepts the service client's audience and roles. Sharing Keycloak alone does not grant queue access.

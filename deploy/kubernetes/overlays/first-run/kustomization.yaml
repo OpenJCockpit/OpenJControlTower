@@ -17,9 +17,6 @@ images:
   - name: openjcontroltower-backend
     newName: ghcr.io/CHANGE-ME/openjcontroltower-backend # CHANGE ME
     newTag: main
-  - name: openjcontroltower-frontend
-    newName: ghcr.io/CHANGE-ME/openjcontroltower-frontend # CHANGE ME
-    newTag: main
   - name: openjcontroltower-opa
     newName: ghcr.io/CHANGE-ME/openjcontroltower-opa # CHANGE ME
     newTag: main
@@ -40,10 +37,6 @@ configMapGenerator:
       - COCKPIT_CLIENT_ID=openjcontroltower-service
       # Author of the commits on spec branches.
       - GIT_AUTHOR_EMAIL=openjcontroltower@example.org # CHANGE ME
-  - name: openjcontroltower-frontend-runtime
-    behavior: replace
-    files:
-      - config.js
 secretGenerator:
   - name: openjcontroltower-backend-secrets
     envs:

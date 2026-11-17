@@ -16,11 +16,8 @@
       "clientId": "controltower-web",
       "enabled": true,
       "publicClient": true,
-      "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://frontend:8080/*"],
-      "webOrigins": ["http://frontend:8080"],
-      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "http://frontend:8080/*" },
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
       "protocolMappers": [
         {
           "name": "controltower-audience",

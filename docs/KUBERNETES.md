@@ -8,8 +8,7 @@ This guide takes OpenJControlTower from container images to a working first run 
 flowchart LR
   U[Browser] -->|HTTPS| I[Ingress]
   U -->|OIDC + PKCE| K[(Existing Keycloak)]
-  I --> F[frontend x2<br/>nginx, static SPA]
-  F -->|/api| B[backend x1<br/>Spring Boot]
+  I -->|/api| B[backend x1<br/>Spring Boot]
   B --> P[(PostgreSQL)]
   B -->|creates, waits, deletes| J[Git Job per spec<br/>clone, commit, push]
   J -->|HTTPS| G[(Git host)]
@@ -23,13 +22,12 @@ flowchart LR
 | `Deployment/openjcontroltower-backend` | **1 replica**, `Recreate` strategy, UID 10001, read-only root FS, startup/liveness/readiness probes, Prometheus annotations |
 | `Role` + `RoleBinding/openjcontroltower-git-jobs` | Lets the backend create, read and delete Jobs, create Secrets (never read them), list pods and read pod logs, in its own namespace only |
 | `Job/ojct-git-<id>` | Created per approved spec, deleted when done: clones the repository, creates the branch `spec/<spec id>`, commits each file separately and pushes. Its inputs, including the Git credentials, are in a Secret owned by the Job, so Kubernetes deletes both together. `activeDeadlineSeconds` and `ttlSecondsAfterFinished` clean up after a backend crash |
-| `Deployment/openjcontroltower-frontend` | 2 replicas, unprivileged nginx (UID 101), PodDisruptionBudget, runtime `config.js` and nginx config from ConfigMaps |
 | `Deployment/openjcontroltower-opa` | *Component* `open-policy-agent` (enabled in the first-run overlay): 2 replicas, UID 65532, read-only root FS. The image contains the standard policies and their values; its REST API only allows reads and decisions. Sets `OPA_ENABLED=true` and `OPA_URL` on the backend |
-| `Ingress/openjcontroltower` | Single host; the frontend proxies `/api` to the backend Service |
+| `Ingress/openjcontroltower` | Single host; routes `/api` to the backend Service |
 | `StatefulSet/openjcontroltower-postgres` | *Optional component* `bundled-postgres`: single instance, 10 Gi, for a first run only |
-| `NetworkPolicy` ×5 | *Optional component* `network-policies` |
+| `NetworkPolicy` ×4 | *Optional component* `network-policies` |
 
-**Why only one backend replica?** Queue dispatch is serialized inside the JVM. Running two backends could dispatch the same spec twice. The `Recreate` strategy means a short downtime during upgrades (typically under 30 seconds). The backend keeps no files, and the frontend scales freely.
+**Why only one backend replica?** Queue dispatch is serialized inside the JVM. Running two backends could dispatch the same spec twice. The `Recreate` strategy means a short downtime during upgrades (typically under 30 seconds). The backend keeps no files.
 
 All workloads, including the Git Jobs, satisfy the **`restricted` Pod Security Standard**: the namespace in the overlay enforces it.
 
@@ -48,7 +46,6 @@ On every push to `main` and on `v*` tags, CI pushes to GHCR once all checks pass
 
 ```text
 ghcr.io/<github-owner>/openjcontroltower-backend:{main|<version>|sha-<commit>}
-ghcr.io/<github-owner>/openjcontroltower-frontend:{main|<version>|sha-<commit>}
 ghcr.io/<github-owner>/openjcontroltower-opa:{main|<version>|sha-<commit>}
 ```
 
@@ -58,14 +55,12 @@ To build and push manually instead:
 
 ```bash
 docker build -t registry.example.org/openjcontroltower-backend:0.1.0 .
-docker build -t registry.example.org/openjcontroltower-frontend:0.1.0 ./frontend
 docker build -t registry.example.org/openjcontroltower-opa:0.1.0 ./infrastructure/opa
 docker push registry.example.org/openjcontroltower-backend:0.1.0
-docker push registry.example.org/openjcontroltower-frontend:0.1.0
 docker push registry.example.org/openjcontroltower-opa:0.1.0
 ```
 
-The frontend image is environment-neutral: it reads the Keycloak settings from the backend at runtime (with `/config.js` as fallback), so you do **not** need to rebuild it per cluster. The `opa` image does contain your policy values: rebuild it after changing `infrastructure/opa/policies/openjcontroltower/config/data.json`. For anything beyond a first run, pin a version tag or a digest rather than `main`.
+The `opa` image does contain your policy values: rebuild it after changing `infrastructure/opa/policies/openjcontroltower/config/data.json`. For anything beyond a first run, pin a version tag or a digest rather than `main`.
 
 ## 2. Prepare Keycloak
 
@@ -128,7 +123,7 @@ Optional settings you can merge into `openjcontroltower-backend-config`:
 - `DECISION_PROVIDER=laya|jev`. Also put `DECISION_API_KEY` in `secrets.env`.
 - `API_DOCS_ENABLED=true` to expose Swagger UI.
 - `HTTP_CONNECT_TIMEOUT` and `HTTP_READ_TIMEOUT`.
-- `GIT_JOB_TIMEOUT` (default 90s), `GIT_JOB_IMAGE`, `GIT_BRANCH_PREFIX` (default `spec`) and `GIT_AUTHOR_NAME`. Approval waits for the push, so keep `GIT_JOB_TIMEOUT` below the proxy timeouts (120 s in the frontend nginx and the Ingress annotation).
+- `GIT_JOB_TIMEOUT` (default 90s), `GIT_JOB_IMAGE`, `GIT_BRANCH_PREFIX` (default `spec`) and `GIT_AUTHOR_NAME`. Approval waits for the push, so keep `GIT_JOB_TIMEOUT` below the Ingress proxy timeout (120 s annotation).
 - `CONTROLTOWER_EDITOR_ROLE` and `CONTROLTOWER_ADMIN_ROLE`, if your realm uses other role names. Also update `writer_roles` and `dispatch_roles` in the policy data.
 - `OPA_FAIL_OPEN=true` to allow governed actions while the agent is down (default: denied). Remove the `open-policy-agent` component to run without policies.
 
@@ -142,7 +137,6 @@ kubectl apply -k deploy/kubernetes/overlays/my-cluster
 
 kubectl -n openjcontroltower rollout status statefulset/openjcontroltower-postgres
 kubectl -n openjcontroltower rollout status deploy/openjcontroltower-backend --timeout=5m
-kubectl -n openjcontroltower rollout status deploy/openjcontroltower-frontend
 kubectl -n openjcontroltower get pods,ingress
 ```
 
@@ -151,7 +145,7 @@ Checks:
 ```bash
 # Flyway migration and startup
 kubectl -n openjcontroltower logs deploy/openjcontroltower-backend | grep -E 'migration|Started'
-# The API answers 401 without a token, through the frontend proxy
+# The API answers 401 without a token, through the Ingress
 curl -s -o /dev/null -w '%{http_code}\n' https://controltower.example.org/api/projects
 ```
 
@@ -190,7 +184,7 @@ A dispatch whose outcome is unknown (timeout or transport failure) is recorded a
 | `/actuator/health/readiness` | readiness probe; includes the database check |
 | `/actuator/prometheus` | Prometheus; the pod carries `prometheus.io/*` annotations |
 
-These endpoints are unauthenticated but are **not** routed through the Ingress. The frontend only proxies `/api`. If you enable the `network-policies` component and scrape from another namespace, add an ingress rule for your Prometheus namespace to `NetworkPolicy/openjcontroltower-backend`.
+These endpoints are unauthenticated but are **not** routed through the Ingress. The Ingress only routes `/api`. If you enable the `network-policies` component and scrape from another namespace, add an ingress rule for your Prometheus namespace to `NetworkPolicy/openjcontroltower-backend`.
 
 ### Logs
 
@@ -221,7 +215,6 @@ Spec files live in their Git repositories, so the database is the only state to 
 |---|---|---|
 | backend | 250m CPU / 768 Mi | 1 Gi (JVM heap = 75% of it) |
 | Git job | 100m CPU / 128 Mi | 512 Mi |
-| frontend | 25m CPU / 32 Mi | 128 Mi |
 | postgres | 100m CPU / 256 Mi | 512 Mi |
 
 No CPU limits are set, to avoid JVM throttling. Adjust these in a patch after watching real usage.
@@ -244,7 +237,6 @@ No CPU limits are set, to avoid JVM throttling. Adjust these in a patch after wa
 | Every API call returns `401` after login | `KEYCLOAK_ISSUER_URI` differs from the token's `iss` claim (scheme, host and realm must match exactly), or the JWKS URI is unreachable from the pod. |
 | API returns `403` on writes | The user lacks the `controltower-editor` realm role, or the role names differ. Set `CONTROLTOWER_EDITOR_ROLE`. |
 | Login page loops or "Keycloak login error" | The Keycloak settings are wrong (Settings page, or `KEYCLOAK_*` before anything was saved), or the redirect URI / web origin is missing in the Keycloak client. |
-| Frontend `CrashLoopBackOff` with `host not found in upstream` | The backend Service is missing or renamed. Don't use `namePrefix`/`nameSuffix` in the overlay, because the nginx config refers to `openjcontroltower-backend`. |
 | `Git URL must start with https://` | Only HTTPS clone URLs are supported; SSH URLs (`git@...`) are not. |
 | Pods rejected with `violates PodSecurity "restricted"` | A local patch added a privileged setting. Revert it, or relax the namespace label consciously. |
 
@@ -252,16 +244,14 @@ No CPU limits are set, to avoid JVM throttling. Adjust these in a patch after wa
 
 - The manifests are rendered in CI (`kubernetes-manifests` job) with `kubectl kustomize`, with and without the network policies.
 - Before release, the containers were run locally under the same constraints the manifests impose:
-  - UID 10001 / 101
+  - UID 10001
   - read-only root filesystem with a tmpfs `/tmp`
   - all capabilities dropped
-  - the Kubernetes nginx config and `config.js` mounted read-only
   - PostgreSQL 17 under the Service DNS names
 - That run checked:
   - Flyway migrated the database
   - liveness and readiness reported `UP`
   - Prometheus metrics were served
-  - the frontend served the SPA and `config.js` with `no-store`
-  - `/api` was proxied to the backend, which answered `401` without a token
+  - the backend answered `401` on `/api` without a token
 - The Kubernetes Git runner is unit-tested against a simulated Kubernetes API (Job spec, owned Secret, polling, logs, deletion, timeouts). The Job itself runs the same script that the browser end-to-end tests run in Docker against a real Git server. It has **not** yet run on a real cluster.
 - An end-to-end run on a real cluster, with a real Keycloak login and a spec approval, is the **first-run step this guide is for**. Please report issues.

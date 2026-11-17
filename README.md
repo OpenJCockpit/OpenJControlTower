@@ -30,7 +30,7 @@ OpenJControlTower is an open-source **interview-first control plane** for specif
 - **OpenJCockpit dispatch:** service-to-service OAuth2 client credentials; queue operation using `specFile` and `workflowId`, failure-conservative deduplication.
 - **Keycloak:** OAuth2/OIDC JWT resource server for the OpenJCockpit realm (`openjcockpit`): the issuer, the audience `openjcontroltower` and the roles are validated. Users sign in to the OpenJCockpit dashboard; there is no runtime Keycloak switching.
 - **Policy as code:** Open Policy Agent decides on saving and checking repositories, approving specs and dispatching. Standard Rego policies ship in [`infrastructure/opa/policies`](infrastructure/opa/policies): writer roles, allowed Git hosts, four-eyes approval, minimum acceptance criteria, secret detection in specs, a dispatch freeze and dispatch roles. A denial names its reasons. The agent's URL, decision path and fail-open/closed behaviour are set on the Settings page.
-- **Contract-first development:** `contracts/openapi.yaml` plus generated frontend TypeScript types, with Spring `/v3/api-docs` for runtime inspection.
+- **Contract-first development:** `contracts/openapi.yaml` for the OpenJCockpit dashboard client, with Spring `/v3/api-docs` for runtime inspection.
 - **Kubernetes-ready operations:** Flyway-versioned schema, liveness/readiness probes, Prometheus metrics, structured JSON logs, graceful shutdown, bounded outbound HTTP timeouts, non-root read-only containers and Kustomize manifests that pass the `restricted` Pod Security Standard.
 
 ## 🧭 Workflow
@@ -98,16 +98,12 @@ docker compose up -d --build backend
 
 ### Native developer workflow
 
-Use JDK 25, Maven 3.9+ and Node 22+:
+Use JDK 25 and Maven 3.9+:
 
 ```bash
 docker compose up -d keycloak git-server docker-proxy
 export GIT_CREDENTIALS_SECRET=dev-only-change-me-at-least-32-characters GIT_CREDENTIALS_SALT=5c0744940b5c369b
 mvn spring-boot:run
-cd frontend
-npm install
-npm run generate:api
-npm run dev
 ```
 
 Vite runs at **http://localhost:5173**. A backend running on your machine cannot resolve the Compose service names: to approve specs, expose the socket proxy (`DOCKER_PROXY_URL`) and use a Git URL that is reachable from the job containers, or run the backend in Compose.
@@ -124,7 +120,7 @@ kubectl apply -k .
 kubectl -n openjcontroltower rollout status deploy/openjcontroltower-backend
 ```
 
-What you get: one stateless backend replica (`Recreate` strategy) that may create a Kubernetes Job per approved spec, two frontend replicas behind a PodDisruptionBudget, two Open Policy Agent replicas with the standard policies, an Ingress, and optional single-instance PostgreSQL for evaluation. Keycloak is **not** deployed: point the overlay at an existing realm. Images are published to GHCR by CI on `main` and `v*` tags.
+What you get: one stateless backend replica (`Recreate` strategy) that may create a Kubernetes Job per approved spec, two Open Policy Agent replicas with the standard policies, an Ingress, and optional single-instance PostgreSQL for evaluation. Keycloak is **not** deployed: point the overlay at an existing realm. Images are published to GHCR by CI on `main` and `v*` tags.
 
 Read the full [Kubernetes deployment guide](docs/KUBERNETES.md) for prerequisites, Keycloak client setup, spec branches and Git credentials, upgrades, backups and troubleshooting.
 
@@ -135,14 +131,13 @@ The repository contains [`.github/workflows/ci.yml`](.github/workflows/ci.yml). 
 | Job | What it checks |
 |---|---|
 | `backend` | Temurin Java 25, Maven `clean verify`, tests, **strict 100% JaCoCo line-coverage gate**, test & coverage artifacts |
-| `frontend` | Node 22, install dependencies, regenerate TypeScript types from OpenAPI, TypeScript/Vite build, Vitest |
-| `containers` | Both backend and frontend Docker images build with Docker |
+| `containers` | The backend and Open Policy Agent Docker images build with Docker |
 | `renovate-config` | Validates `renovate.json` with the Renovate strict config validator |
-| `e2e` | `scripts/run-e2e.sh`: Playwright against a disposable Compose stack with real Keycloak logins; report and traces uploaded as artifacts |
+| `e2e` | `scripts/run-e2e.sh`: Playwright API tests against a disposable Compose stack with real Keycloak tokens; report and traces uploaded as artifacts |
 | `kubernetes-manifests` | Renders the `first-run` overlay, with and without the network-policy component |
-| `publish-images` | On `main` and `v*` tags, after all checks pass: pushes both images to `ghcr.io/<owner>/openjcontroltower-{backend,frontend}` |
+| `publish-images` | On `main` and `v*` tags, after all checks pass: pushes the images to `ghcr.io/<owner>/openjcontroltower-{backend,opa}` |
 
-`mvn clean verify`, the frontend build/tests, the 9 browser E2E tests and both Docker images have been verified locally on JDK 25.0.3 / Maven 3.9.16 / Node 22. The workflows themselves have not yet executed on GitHub, because no remote is connected yet.
+`mvn clean verify` and the Docker images have been verified locally on JDK 25.0.3 / Maven 3.9.16. The workflows themselves have not yet executed on GitHub, because no remote is connected yet.
 
 ## 🔄 Dependency updates with Renovate
 
@@ -159,7 +154,7 @@ Spring Boot 4.1 uses **Jackson 3**, so storage and decision classes were also mi
 
 ```text
 openjcontroltower/
-├── contracts/openapi.yaml             # single frontend-backend contract
+├── contracts/openapi.yaml             # API contract (consumed by the OpenJCockpit dashboard)
 ├── src/main/java/org/openjcontroltower/
 │   ├── domain/                       # DAG rules, types, stable IDs
 │   ├── application/                  # discovery, generation, dispatch
@@ -167,12 +162,11 @@ openjcontroltower/
 │   ├── api/                          # REST adapter
 │   └── config/                       # security, seed templates
 ├── src/test/                          # JVM tests
-├── frontend/src/                      # React 19 / TypeScript / SCSS
 ├── src/main/resources/db/migration/   # Flyway versioned schema migrations
 ├── infrastructure/keycloak/           # local Keycloak realm (development only)
 ├── infrastructure/git-server/         # Git server over HTTP (development and E2E only)
 ├── infrastructure/opa/                # Open Policy Agent image with the standard Rego policies and tests
-├── e2e/                              # Playwright browser tests + disposable Compose stack
+├── e2e/                              # Playwright API tests + disposable Compose stack
 ├── deploy/kubernetes/                 # Kustomize base, components and first-run overlay
 ├── docs/                              # architecture, Kubernetes + production guidance
 ├── specs/                             # implementation roadmap as small specs
@@ -186,8 +180,7 @@ openjcontroltower/
 
 ## 🔌 Contracts and integrations
 
-- **Control Tower contract:** [`contracts/openapi.yaml`](contracts/openapi.yaml). The frontend imports `components['schemas']` generated by `openapi-typescript`.
-- **Regenerate client types:** `cd frontend && npm run generate:api`.
+- **Control Tower contract:** [`contracts/openapi.yaml`](contracts/openapi.yaml).
 - **Runtime contract:** `http://localhost:8080/v3/api-docs` (Swagger UI at `/swagger-ui.html`). Consider API-diff tests before changing an endpoint.
 - **OpenJCockpit:** `POST /api/projects/{projectId}/spec-queue/items` with `{ "specFile": "001-feature/spec.md", "workflowId": "..." }`. This is the intended upstream contract as inspected in project docs; validate against the exact version deployed. The file path is relative to `specs/`.
 - **Jev/Laya:** configurable `DECISION_PROVIDER` (`deterministic`, `laya`, `jev`), `DECISION_ENDPOINT`, `DECISION_API_KEY`. Ranking cannot bypass the DAG.
@@ -239,7 +232,6 @@ A shared Keycloak realm does **not** imply that OpenJCockpit grants the control 
 ```bash
 mvn test          # fast feedback
 mvn clean verify  # JaCoCo report and STRICT 100% line coverage gate
-cd frontend && npm run build
 ```
 
 `mvn clean verify` currently passes the gate at **100% line coverage, without exclusions**. The report is written to `target/site/jacoco/index.html`. The suite contains:
@@ -253,12 +245,11 @@ cd frontend && npm run build
 - **Settings and policies:** token validation against a changed Keycloak (real signed JWTs), the Open Policy Agent client against a local HTTP server, and fail-open/closed enforcement.
 - **Rego tests** (`opa test`) for every standard policy and for the read-only agent API; CI also checks formatting and strict compilation.
 
-**Browser end-to-end tests** (Playwright, [`e2e/`](e2e)) run the real stack: PostgreSQL, Keycloak with a test-only realm, a Git server, Open Policy Agent, a Docker socket proxy, the backend and the nginx frontend. Chromium signs in through the actual Keycloak login form, and the suite covers:
+**API end-to-end tests** (Playwright, [`e2e/`](e2e)) run the real stack: PostgreSQL, Keycloak with a test-only realm, a Git server, Open Policy Agent, a Docker socket proxy, and the backend. The tests obtain tokens from the actual Keycloak and call the REST API, and the suite covers:
 
-- **Authorization:** login redirect, rejected credentials, `401` without a token, a viewer receiving `403` on writes, and sign-out.
+- **Authorization:** rejected credentials, `401` without a token, a viewer receiving `403` on writes.
 - **The main flow:** register a repository with credentials (and reject a URL with embedded credentials), check the connection with a wrong and a right password, check that the password stays write-only when editing, run a project interview with an adaptive follow-up, generate three dependent specs, approve the root spec (then clone the pushed branch and check its files and its five commits), check DAG readiness, dispatch with the `UNKNOWN` no-retry outcome, and start a feature interview. The script fails if any Git job container is left behind.
-- **Navigation:** every sidebar section has its own URL, the back button works, and a bookmarked URL survives the Keycloak login.
-- **Settings and policies:** an administrator opens Settings from the sidebar, tests and saves Keycloak and the policy agent (wrong values are refused), other users see the page read-only, and a policy refuses a repository on a Git host that is not allowed.
+- **Settings and policies:** an administrator tests and saves the policy agent (an unreachable agent is refused), other users see the page read-only, and a policy refuses a repository on a Git host that is not allowed.
 
 ```bash
 sh scripts/run-e2e.sh   # needs only Docker; builds, runs, and always tears the stack down
@@ -276,7 +267,7 @@ Read [SECURITY.md](SECURITY.md), the [Kubernetes guide](docs/KUBERNETES.md) and 
 
 ## 🛣️ Roadmap
 
-Track the next increments in [`specs/_index.md`](specs/_index.md), including verification that spec branches are merged before dispatch, verified Cockpit status reconciliation, full-duplex private speech adapters and workspace RBAC/auditing. Versioned migrations (CT-0006), and 100% line coverage with browser E2E tests (CT-0007), are done.
+Track the next increments in [`specs/_index.md`](specs/_index.md), including verification that spec branches are merged before dispatch, verified Cockpit status reconciliation, full-duplex private speech adapters and workspace RBAC/auditing. Versioned migrations (CT-0006), and 100% line coverage with API E2E tests (CT-0007), are done.
 
 ## 🤝 Contributing
 

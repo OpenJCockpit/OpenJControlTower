@@ -7,9 +7,8 @@ OpenJControlTower uses [Renovate](https://docs.renovatebot.com/) for version upd
 Renovate discovers and updates versions in:
 
 - Maven `pom.xml` (Spring Boot parent, Spring AI BOM, springdoc, JaCoCo, Maven plugins, and other explicitly versioned Java libraries).
-- `frontend/package.json` (React, TypeScript, Vite, Vitest, Keycloak JS, and other frontend dependencies).
 - `.github/workflows/*.yml` (GitHub Actions version references; best-practices preset pins them by SHA).
-- Root and frontend `Dockerfile` files and both Docker Compose files (base and service image tags/digests).
+- The root `Dockerfile` and both Docker Compose files (base and service image tags/digests).
 - `e2e/package.json` and `e2e/Dockerfile`: `@playwright/test` and the `mcr.microsoft.com/playwright` image are grouped in one PR, because the image bundles the matching browsers.
 - The PostgreSQL image in `deploy/kubernetes/components/bundled-postgres`. Application images in overlays are your own release tags, and are not managed by Renovate.
 
@@ -33,7 +32,7 @@ The repository configuration alone does **not** run Renovate. Once the project i
 2. Ensure `renovate.json` is present on the default branch (it is included in the archive). The hosted app should use this configuration during onboarding.
 3. In repository **Settings → Advanced Security**, enable **Dependency graph** and **Dependabot alerts**. These are vulnerability signals, **not** Dependabot's automated version-update PRs. Confirm the Renovate app has Dependabot alerts read permissions if security alert integration is required.
 4. Keep **Dependabot version updates disabled**. `.github/dependabot.yml` was removed intentionally, to prevent two bots from proposing identical version changes.
-5. Enable GitHub Actions and apply branch protection/rulesets for backend, frontend, containers, and `renovate-config` checks **after the build is actually passing**. Never bypass the gate to get dependency updates merged.
+5. Enable GitHub Actions and apply branch protection/rulesets for backend, containers, and `renovate-config` checks **after the build is actually passing**. Never bypass the gate to get dependency updates merged.
 6. Check the Dependency Dashboard issue and review PRs as they are proposed. Security updates should be reviewed promptly.
 
 ## Configuration checks

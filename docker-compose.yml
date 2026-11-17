@@ -102,15 +102,6 @@ services:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_KEYCLOAK_URL: http://localhost:8081
-    ports:
-      - "4000:8080"
-    depends_on:
-      - backend
 volumes:
   postgres_data:
   git_data:

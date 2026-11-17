@@ -1,9 +1,6 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig } from '@playwright/test';
 
-// keycloak-js needs Web Crypto (PKCE), which browsers only expose in secure contexts.
-// The Compose hostnames are plain HTTP, so Chromium is told to treat exactly these origins as secure.
-const secureOrigins = process.env.E2E_SECURE_ORIGINS ?? 'http://frontend:8080,http://keycloak:8080';
-
+// API tests only: they call the backend directly with tokens issued by the test Keycloak, so no browser is needed.
 export default defineConfig({
   testDir: './tests',
   testMatch: '**/*.e2e.ts',
@@ -15,11 +12,7 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   use: {
-    baseURL: process.env.BASE_URL ?? 'http://frontend:8080',
+    baseURL: process.env.BASE_URL ?? 'http://backend:8080',
     trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
-    launchOptions: { args: [`--unsafely-treat-insecure-origin-as-secure=${secureOrigins}`] },
   },
-  // The full Chromium build (not the headless shell) honours the secure-origin flag above.
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], channel: 'chromium' } }],
 });

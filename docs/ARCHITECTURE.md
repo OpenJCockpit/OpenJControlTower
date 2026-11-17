@@ -5,8 +5,8 @@ OpenJCockpit runs implementation workflows; OpenJControlTower elicits requiremen
 
 ## Decisions
 - Java 25 and Spring Boot 4.1.2, with Spring AI 2.0.2 and Jackson 3. The REST boundary remains versioned and independent of OpenJCockpit.
-- React 19, Vite, TypeScript and SCSS echo OpenJCockpit frontend conventions without copying its source code or assets.
-- OpenAPI 3.0 is the cross-service/frontend contract; generate frontend types with `npm run generate:api`.
+- The web UI lives in the OpenJCockpit dashboard (`remote-controltower`); this service exposes only the REST API.
+- OpenAPI 3.0 is the cross-service contract consumed by the OpenJCockpit dashboard.
 - Independent interview-question and Markdown-spec templates are persisted and selected at generation time. The generator substitutes only whitelisted placeholders.
 - JDBC + portable H2 (native dev) / PostgreSQL (Docker, Kubernetes, production). The schema is managed by Flyway versioned migrations in `src/main/resources/db/migration`; pre-Flyway databases are adopted as version 1. Backups remain an operator responsibility.
 - Domain DAG is pure Java and does not rely on an LLM. Edge A -> B means B needs A completed.
@@ -19,12 +19,12 @@ OpenJCockpit runs implementation workflows; OpenJControlTower elicits requiremen
 - The backend holds no repository state, so there is nothing to back up besides the database and the encryption key.
 - Dispatch uses a dedicated OAuth2 client-credentials identity, not a user's access token. An UNKNOWN HTTP outcome is non-retriable until reconciled by a human. All outbound HTTP calls have connect/read timeouts.
 - Kubernetes deployment uses Kustomize (`deploy/kubernetes`), not Helm: it ships with `kubectl` and keeps manifests reviewable as plain YAML. The backend runs as a **single replica**, because dispatch is serialized in-process. Horizontal scaling needs a distributed lock first.
-- Frontend images are environment-neutral: before sign-in, the web application reads the Keycloak URL, realm and client from the backend (`GET /api/public/auth-config`), with `/config.js` (mounted from a ConfigMap) and build-time `VITE_*` values as fallbacks.
+- Before sign-in, clients read the Keycloak URL, realm and client from the backend (`GET /api/public/auth-config`).
 - Runtime settings (Keycloak and Open Policy Agent) live in the `settings` table and take precedence over environment variables, which act as defaults. Only the admin role may change them. The backend's `JwtDecoder` reads the Keycloak settings for every token and rebuilds its Nimbus decoder when the issuer or signing-key URL changes, so a change needs no restart. A Keycloak change is only saved when the realm's signing keys can be fetched; `KEYCLOAK_IGNORE_SAVED_SETTINGS=true` is the way back after a mistake that keys alone cannot catch, such as a wrong client ID.
 - Open Policy Agent is the policy decision point; `PolicyGuard` in the application layer is the enforcement point. The governed steps (`repository.save`, `repository.check`, `spec.approve`, `queue.dispatch`) send the action, the user (name and realm roles) and the resource, and act only on `allow: true`. Policies are Rego in `infrastructure/opa/policies`, built into the `opa` image with their data, and the agent's REST API only allows reads and decisions (`system.authz`). Unreachable agent: deny by default (fail closed), or allow when an administrator chose fail open. Who generated a spec is stored (`specs.created_by`) so policies can require a second person.
 
 ## Security boundary
-Browser PKCE -> Keycloak -> Bearer token -> Spring resource server -> Open Policy Agent for governed steps. Write routes require a configurable realm role; settings routes require the admin role. Use an external or shared issuer from the Settings page, or with `KEYCLOAK_ISSUER_URI`, `KEYCLOAK_JWKS_URI` and `KEYCLOAK_CLIENT_ID`, plus service credentials. Health probes and Prometheus metrics are unauthenticated on the backend port, but are not routed through the frontend or Ingress.
+Browser PKCE -> Keycloak -> Bearer token -> Spring resource server -> Open Policy Agent for governed steps. Write routes require a configurable realm role; settings routes require the admin role. Use an external or shared issuer from the Settings page, or with `KEYCLOAK_ISSUER_URI`, `KEYCLOAK_JWKS_URI` and `KEYCLOAK_CLIENT_ID`, plus service credentials. Health probes and Prometheus metrics are unauthenticated on the backend port, but are not routed through the Ingress, which exposes only `/api`.
 
 ## Current MVP limitations
 1. Spec branches are pushed, but no pull request is opened, and SSH remotes and GitHub App credentials are not supported (HTTPS with a token or password only).

@@ -2,7 +2,6 @@
 .idea
 .vscode
 **/node_modules
-frontend/dist
 target
 .data
 .env

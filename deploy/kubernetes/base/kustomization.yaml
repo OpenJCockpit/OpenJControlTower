@@ -8,7 +8,6 @@ labels:
     includeSelectors: false
 resources:
   - backend.yaml
-  - frontend.yaml
   - ingress.yaml
 configMapGenerator:
   # Non-secret backend settings. Overlays merge their environment-specific values into this map.
@@ -17,7 +16,7 @@ configMapGenerator:
       # Each approved spec is pushed from its own Job (restricted Pod Security Standard).
       - GIT_RUNNER=kubernetes
       - GIT_JOB_IMAGE=alpine/git:2.49.1
-      # Approval waits for the push: keep this below the ingress and frontend proxy timeouts (120s).
+      # Approval waits for the push: keep this below the ingress proxy timeout (120s).
       - GIT_JOB_TIMEOUT=90s
       - GIT_BRANCH_PREFIX=spec
       - GIT_AUTHOR_NAME=OpenJControlTower
@@ -34,9 +33,3 @@ configMapGenerator:
       - LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs
       - HTTP_CONNECT_TIMEOUT=5s
       - HTTP_READ_TIMEOUT=30s
-  - name: openjcontroltower-frontend-nginx
-    files:
-      - default.conf=frontend-nginx.conf
-  - name: openjcontroltower-frontend-runtime
-    files:
-      - config.js=frontend-config.js

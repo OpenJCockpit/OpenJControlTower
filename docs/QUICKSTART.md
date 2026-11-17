@@ -31,7 +31,7 @@ For a real repository, use its HTTPS URL and an access token with write access. 
 
 **Check connection** shows whether the URL answers as a Git repository and whether the credentials are accepted, before you save. It sends one HTTP request (`<url>/info/refs?service=git-upload-pack`) from the backend; nothing is cloned. A stored token is only reused for the host it was entered for: change the host and you enter the token again. The check confirms read access only, so a token without write access still fails when a spec is pushed.
 
-The frontend has screens for:
+The OpenJCockpit dashboard (Control Tower hub) has screens for:
 
 - repositories
 - interview templates
@@ -81,9 +81,8 @@ The MVP does not yet verify the status of the upstream queue automatically. Conf
 ## Testing
 
 - **Backend:** `mvn clean verify` requires **100% JaCoCo line coverage**, and the build meets it with 151 tests and no exclusions, verified with JDK 25 and Maven 3.9. The report is in `target/site/jacoco/index.html`.
-- **Frontend:** build and test it with `npm run build` and `npm run test`.
 - **Policies:** `docker run --rm -v "$PWD/infrastructure/opa/policies:/policies:ro" openpolicyagent/opa:1.10.1-static test /policies`.
-- **Browser end-to-end tests:** run `sh scripts/run-e2e.sh`. They use Playwright with real Keycloak logins and push real spec branches to a test Git server. Only Docker is required, and the test environment is always removed afterwards.
+- **API end-to-end tests:** run `sh scripts/run-e2e.sh`. They use Playwright with real Keycloak tokens and push real spec branches to a test Git server. Only Docker is required, and the test environment is always removed afterwards.
 
 ## Kubernetes
 

@@ -9,12 +9,8 @@ spec:
       app.kubernetes.io/component: backend
   policyTypes: [Ingress]
   ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: openjcontroltower
-              app.kubernetes.io/component: frontend
-      ports:
+    # Reached through the Ingress controller, which usually runs in another namespace.
+    - ports:
         - port: 8080
 ---
 apiVersion: networking.k8s.io/v1
@@ -35,20 +31,6 @@ spec:
               app.kubernetes.io/component: backend
       ports:
         - port: 5432
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: openjcontroltower-frontend
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: openjcontroltower
-      app.kubernetes.io/component: frontend
-  policyTypes: [Ingress]
-  ingress:
-    - ports:
-        - port: 8080
 ---
 # Git job pods accept no connections; they only clone from and push to the Git host.
 apiVersion: networking.k8s.io/v1
