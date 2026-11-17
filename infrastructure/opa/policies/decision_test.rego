@@ -3,17 +3,17 @@ package openjcontroltower.decision_test
 import data.openjcontroltower.decision
 
 config := {
-	"writer_roles": ["controltower-editor", "controltower-admin"],
+	"writer_roles": ["openjcockpit-operator", "openjcockpit-admin"],
 	"allowed_git_hosts": ["git.example.org"],
 	"require_four_eyes": true,
 	"min_acceptance_criteria": 2,
 	"dispatch_freeze": false,
-	"dispatch_roles": ["controltower-admin"],
+	"dispatch_roles": ["openjcockpit-admin"],
 }
 
-editor := {"name": "alice", "roles": ["controltower-editor"]}
+editor := {"name": "alice", "roles": ["openjcockpit-operator"]}
 
-admin := {"name": "bob", "roles": ["controltower-admin"]}
+admin := {"name": "bob", "roles": ["openjcockpit-admin"]}
 
 spec(body, created_by, criteria) := {"body": body, "createdBy": created_by, "acceptanceCriteria": criteria}
 

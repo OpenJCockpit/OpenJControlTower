@@ -1,6 +1,6 @@
 # Single-host reference deployment. For clusters use deploy/kubernetes (docs/KUBERNETES.md).
 # Terminate TLS with a managed reverse proxy.
-# Requires externally provisioned Keycloak; no seeded credentials.
+# Requires the OpenJCockpit Keycloak realm (tokens are validated against it); no seeded credentials.
 services:
   postgres:
     image: postgres:17-alpine
@@ -25,8 +25,9 @@ services:
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Required}
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:?Required}
       KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:?Required}
-      # The web application signs in with the client the backend publishes (settings page default).
-      KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:?Required}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-openjcontroltower}
+      CONTROLTOWER_EDITOR_ROLE: ${CONTROLTOWER_EDITOR_ROLE:-openjcockpit-operator}
+      CONTROLTOWER_ADMIN_ROLE: ${CONTROLTOWER_ADMIN_ROLE:-openjcockpit-admin}
       OPA_ENABLED: ${OPA_ENABLED:-true}
       OPA_URL: http://opa:8181
       GIT_RUNNER: docker
@@ -66,17 +67,6 @@ services:
       POST: 1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:?Required}
-        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:?Required}
-        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:?Required}
-    ports:
-      - "127.0.0.1:4000:8080"
-    depends_on:
-      - backend
 volumes:
   prod_pg_data:
 networks:

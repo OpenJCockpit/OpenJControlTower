@@ -1,4 +1,4 @@
-# Single entry point: the frontend serves the SPA and proxies /api to the backend Service.
+# Single entry point: routes only /api to the backend Service (probes and metrics stay unrouted).
 # Overlays set ingressClassName, host and TLS.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -14,10 +14,10 @@ spec:
     - host: controltower.example.org
       http:
         paths:
-          - path: /
+          - path: /api
             pathType: Prefix
             backend:
               service:
-                name: openjcontroltower-frontend
+                name: openjcontroltower-backend
                 port:
                   name: http

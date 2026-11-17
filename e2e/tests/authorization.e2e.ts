@@ -1,19 +1,19 @@
 import { expect, test } from '@playwright/test';
-import { alert, openSection, signIn, users } from './support';
+import { as, users } from './support';
 
-test('anonymous visitors are sent to the Keycloak login page', async ({ page }) => {
-  await page.goto('/');
-  await expect(page).toHaveURL(/\/realms\/openjcontroltower\/protocol\/openid-connect\/auth/);
-  await expect(page.locator('#kc-login')).toBeVisible();
-});
+const repository = {
+  name: 'Viewer attempt',
+  gitUrl: 'https://git.example.org/team/repo.git',
+  credentialType: 'NONE',
+  cockpitProjectId: 'cockpit',
+  workflowId: 'wf',
+};
 
-test('invalid credentials are rejected by Keycloak', async ({ page }) => {
-  await page.goto('/');
-  await page.locator('#username').fill(users.editor.username);
-  await page.locator('#password').fill('wrong-password');
-  await page.locator('#kc-login').click();
-  await expect(page.getByText(/invalid username or password/i)).toBeVisible();
-  await expect(page).not.toHaveURL(/frontend:8080\/?$/);
+test('Keycloak rejects invalid credentials', async ({ request }) => {
+  const response = await request.post('http://keycloak:8080/realms/openjcontroltower/protocol/openid-connect/token', {
+    form: { grant_type: 'password', client_id: 'controltower-web', username: users.editor.username, password: 'wrong-password' },
+  });
+  expect(response.status()).toBe(401);
 });
 
 test('the API rejects requests without a bearer token', async ({ request }) => {
@@ -21,26 +21,21 @@ test('the API rejects requests without a bearer token', async ({ request }) => {
   expect((await request.post('/api/projects', { data: {} })).status()).toBe(401);
 });
 
-test('a viewer can read but not register repositories', async ({ page }) => {
-  await signIn(page, users.viewer);
-  await openSection(page, 'Repositories');
-  await expect(page.getByText('No repositories connected.')).toBeVisible();
-  await page.getByLabel('Project name').fill('Viewer attempt');
-  await page.getByLabel('Git repository URL').fill('https://git.example.org/team/repo.git');
-  await page.getByLabel('OpenJCockpit project ID').fill('cockpit');
-  await page.getByLabel('OpenJCockpit workflow ID').fill('wf');
-  await page.getByRole('button', { name: 'Connect repository' }).click();
-  await expect(alert(page)).toContainText(/403|Forbidden/);
-  await expect(page.getByText('No repositories connected.')).toBeVisible();
+test('the API rejects a malformed bearer token', async ({ request }) => {
+  const response = await request.get('/api/projects', { headers: { Authorization: 'Bearer not-a-jwt' } });
+  expect(response.status()).toBe(401);
 });
 
-test('signing out ends the session', async ({ page }) => {
-  await signIn(page, users.viewer);
-  await page.getByRole('button', { name: 'Sign out' }).click();
-  // Depending on the Keycloak version the user may have to confirm the logout.
-  const confirm = page.locator('#kc-logout');
-  if (await confirm.isVisible({ timeout: 3_000 }).catch(() => false)) await confirm.click();
-  // Keycloak sends the browser back to the app, which requires a new login at once.
-  await expect(page).toHaveURL(/\/realms\/openjcontroltower\/protocol\/openid-connect\/auth/);
-  await expect(page.locator('#kc-login')).toBeVisible();
+test('health probes are public', async ({ request }) => {
+  expect((await request.get('/actuator/health/readiness')).status()).toBe(200);
+});
+
+test('a viewer can read but not register repositories', async ({ request }) => {
+  const headers = await as(request, users.viewer);
+  const list = await request.get('/api/projects', { headers });
+  expect(list.status()).toBe(200);
+  expect(await list.json()).toEqual([]);
+  const create = await request.post('/api/projects', { headers, data: repository });
+  expect(create.status()).toBe(403);
+  expect(await (await request.get('/api/projects', { headers })).json()).toEqual([]);
 });

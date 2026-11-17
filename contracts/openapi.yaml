@@ -16,6 +16,15 @@ paths:
       tags:
       - Control Tower
       operationId: listProjects
+      description: Each OpenJCockpit project has at most one repository, so filtering by cockpitProjectId returns zero
+        or one item.
+      parameters:
+      - name: cockpitProjectId
+        in: query
+        required: false
+        description: Only the repository linked to this OpenJCockpit project.
+        schema:
+          type: string
       responses:
         '200':
           description: Success
@@ -48,6 +57,12 @@ paths:
                 $ref: '#/components/schemas/Project'
         '400':
           description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: The OpenJCockpit project already has a repository
           content:
             application/json:
               schema:
@@ -116,6 +131,12 @@ paths:
                 $ref: '#/components/schemas/Project'
         '400':
           description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: The OpenJCockpit project already has a repository
           content:
             application/json:
               schema:
@@ -586,20 +607,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateSpecTemplate'
-  /api/public/auth-config:
-    get:
-      tags:
-      - Control Tower
-      operationId: getAuthConfig
-      security: []
-      description: Public. The Keycloak instance the web application signs in with, read before sign-in.
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthConfig'
   /api/settings:
     get:
       tags:
@@ -614,65 +621,6 @@ paths:
                 $ref: '#/components/schemas/SettingsView'
         '401':
           description: Unauthorized
-  /api/settings/keycloak:
-    put:
-      tags:
-      - Control Tower
-      operationId: updateKeycloakSettings
-      description: Admin only. Saved only when the signing keys can be fetched; tokens are validated against the new
-        issuer immediately, so users sign in again when the URL or realm changes.
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KeycloakSettings'
-        '400':
-          description: Invalid settings, or the Keycloak instance or policy agent did not answer
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '401':
-          description: Unauthorized
-        '403':
-          description: Requires the admin role
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/KeycloakSettings'
-  /api/settings/keycloak/test:
-    post:
-      tags:
-      - Control Tower
-      operationId: testKeycloakSettings
-      description: Admin only. Fetches the signing keys of the given settings without saving them.
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/KeycloakCheckResult'
-        '400':
-          description: Invalid settings, or the Keycloak instance or policy agent did not answer
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-        '401':
-          description: Unauthorized
-        '403':
-          description: Requires the admin role
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/KeycloakSettings'
   /api/settings/policy:
     put:
       tags:
@@ -687,7 +635,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PolicySettings'
         '400':
-          description: Invalid settings, or the Keycloak instance or policy agent did not answer
+          description: Invalid settings, or the policy agent did not answer
           content:
             application/json:
               schema:
@@ -716,7 +664,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PolicyStatus'
         '400':
-          description: Invalid settings, or the Keycloak instance or policy agent did not answer
+          description: Invalid settings, or the policy agent did not answer
           content:
             application/json:
               schema:
@@ -738,33 +686,6 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
-    AuthConfig:
-      type: object
-      required: [url, realm, clientId]
-      properties:
-        url:
-          type: string
-        realm:
-          type: string
-        clientId:
-          type: string
-    KeycloakSettings:
-      type: object
-      required: [url, realm, clientId]
-      properties:
-        url:
-          type: string
-          description: Keycloak base URL as the browser reaches it. With the realm it forms the token issuer.
-        realm:
-          type: string
-        clientId:
-          type: string
-          description: Public client the web application signs in with.
-        backendUrl:
-          type: string
-          nullable: true
-          description: Optional. The Keycloak base URL as the backend reaches it, when that differs from url. The signing
-            keys are fetched from <backendUrl or url>/realms/<realm>/protocol/openid-connect/certs.
     PolicySettings:
       type: object
       required: [enabled, url, decisionPath, failOpen]
@@ -782,23 +703,13 @@ components:
           description: Allow governed actions while the agent cannot be reached. Default false (deny).
     SettingsView:
       type: object
-      required: [keycloak, policy, editable]
+      required: [policy, editable]
       properties:
-        keycloak:
-          $ref: '#/components/schemas/KeycloakSettings'
         policy:
           $ref: '#/components/schemas/PolicySettings'
         editable:
           type: boolean
           description: Whether the current user has the admin role and may change the settings.
-    KeycloakCheckResult:
-      type: object
-      required: [reachable, message]
-      properties:
-        reachable:
-          type: boolean
-        message:
-          type: string
     PolicyStatus:
       type: object
       required: [reachable, message, policies]
@@ -834,6 +745,7 @@ components:
           type: boolean
         cockpitProjectId:
           type: string
+          description: The OpenJCockpit project this repository belongs to. Unique, so there is one repository per project.
         workflowId:
           type: string
       required:
@@ -1203,4 +1115,3 @@ components:
       properties:
         specTemplateId:
           type: string
-      required: []

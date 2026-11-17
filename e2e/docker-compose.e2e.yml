@@ -1,4 +1,4 @@
-# Isolated, disposable stack for browser end-to-end tests. Run it with scripts/run-e2e.sh.
+# Isolated, disposable stack for API end-to-end tests. Run it with scripts/run-e2e.sh.
 # Test-only realm and credentials: never reuse them outside this stack.
 name: ojct-e2e
 services:
@@ -52,9 +52,12 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/controltower
       DB_USER: controltower
       DB_PASSWORD: e2e-only
-      # The browser reaches Keycloak as http://keycloak:8080, so that is the token issuer.
+      # Tests request tokens from Keycloak as http://keycloak:8080, so that is the token issuer.
       KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/openjcontroltower
       KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/openjcontroltower/protocol/openid-connect/certs
+      # The test realm keeps its own roles; the test client adds the audience through a mapper.
+      CONTROLTOWER_EDITOR_ROLE: controltower-editor
+      CONTROLTOWER_ADMIN_ROLE: controltower-admin
       GIT_RUNNER: docker
       DOCKER_PROXY_URL: http://docker-proxy:2375
       GIT_JOB_DOCKER_NETWORK: ojct-e2e
@@ -80,23 +83,16 @@ services:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/actuator/health/readiness"]
       interval: 3s
       retries: 60
-  frontend:
-    build: ../frontend
-    volumes:
-      - ./config.js:/usr/share/nginx/html/config.js:ro
-    depends_on:
-      backend:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
-      interval: 3s
-      retries: 20
   e2e:
     build: .
     profiles: [test]
     environment:
-      BASE_URL: http://frontend:8080
+      BASE_URL: http://backend:8080
+      KEYCLOAK_URL: http://keycloak:8080
       CI: ${CI:-}
+    depends_on:
+      backend:
+        condition: service_healthy
     volumes:
       - ./playwright-report:/e2e/playwright-report
       - ./test-results:/e2e/test-results

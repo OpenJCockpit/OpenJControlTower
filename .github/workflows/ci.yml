@@ -46,37 +46,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  frontend:
-    name: Frontend / Node 22 / OpenAPI
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-      - name: Install dependencies
-        run: npm install --no-audit --no-fund
-      - name: Generate types from OpenAPI contract
-        run: npm run generate:api
-      - name: Typecheck and build
-        run: npm run build
-      - name: Run frontend unit tests
-        run: npm run test
-
   containers:
-    name: Docker / backend and frontend
+    name: Docker / backend and OPA
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - name: Build backend image (Java 25)
         run: docker build --pull --tag openjcontroltower-backend:ci .
-      - name: Build frontend image
-        run: docker build --pull --tag openjcontroltower-frontend:ci ./frontend
       - name: Build Open Policy Agent image
         run: docker build --pull --tag openjcontroltower-opa:ci ./infrastructure/opa
 
@@ -141,13 +118,13 @@ jobs:
         working-directory: deploy/kubernetes/overlays/first-run
         run: |
           sed -i 's|  # - ../../components/network-policies|  - ../../components/network-policies|' kustomization.yaml
-          test "$(kubectl kustomize . | grep -c '^kind: NetworkPolicy')" -eq 5
+          test "$(kubectl kustomize . | grep -c '^kind: NetworkPolicy')" -eq 4
 
   publish-images:
     name: Publish images to GHCR
     # Only verified commits on main and version tags produce deployable images.
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [backend, frontend, containers, policies, e2e, kubernetes-manifests]
+    needs: [backend, containers, policies, e2e, kubernetes-manifests]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -158,8 +135,6 @@ jobs:
         include:
           - image: openjcontroltower-backend
             context: .
-          - image: openjcontroltower-frontend
-            context: ./frontend
           - image: openjcontroltower-opa
             context: ./infrastructure/opa
     steps:

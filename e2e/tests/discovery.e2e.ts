@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { expect, test } from '@playwright/test';
-import { alert, openSection, signIn, users } from './support';
+import { as, users } from './support';
 
 const gitUrl = 'http://git-server:8080/git/e2e-repo.git';
 const git = { username: 'e2e-git', password: 'e2e-only-git' };
@@ -10,136 +10,166 @@ const git_ = (...args: string[]) => execFileSync('git', args, { encoding: 'utf8'
 const detailed = (topic: string) =>
   `${topic}: platform engineers in three product teams, measured by a 30% shorter lead time per change.`;
 
-test('Git URLs with embedded credentials are refused', async ({ page }) => {
-  await signIn(page, users.editor);
-  await openSection(page, 'Repositories');
-  await page.getByLabel('Project name').fill('Leaky URL');
-  await page.getByLabel('Git repository URL').fill('https://user:token@git.example.org/team/repo.git');
-  await page.getByLabel('OpenJCockpit project ID').fill('cockpit');
-  await page.getByLabel('OpenJCockpit workflow ID').fill('wf');
-  await page.getByRole('button', { name: 'Connect repository' }).click();
-  await expect(alert(page)).toContainText('may not contain credentials');
+test('Git URLs with embedded credentials are refused', async ({ request }) => {
+  const headers = await as(request, users.editor);
+  const response = await request.post('/api/projects', {
+    headers,
+    data: {
+      name: 'Leaky URL',
+      gitUrl: 'https://user:token@git.example.org/team/repo.git',
+      credentialType: 'NONE',
+      cockpitProjectId: 'cockpit',
+      workflowId: 'wf',
+    },
+  });
+  expect(response.status()).toBe(400);
+  expect((await response.json()).error).toContain('may not contain credentials');
 });
 
-test('an editor runs discovery from repository to dispatch', async ({ page }) => {
-  await signIn(page, users.editor);
+test('an editor runs discovery from repository to dispatch', async ({ request }) => {
+  const headers = await as(request, users.editor);
+  const repository = {
+    name: 'E2E project',
+    gitUrl,
+    credentialType: 'USERNAME_PASSWORD',
+    gitUsername: git.username,
+    cockpitProjectId: 'cockpit-e2e',
+    workflowId: 'wf-e2e',
+  };
+  let projectId = '';
+  let interviewId = '';
+  let specs: Array<{ id: string; title: string; status: string; branch: string | null; dependsOn: string[] }> = [];
 
   await test.step('register the Git repository', async () => {
-    await openSection(page, 'Repositories');
-    await page.getByLabel('Project name').fill('E2E project');
-    await page.getByLabel('Git repository URL').fill(gitUrl);
-    await page.getByLabel('Authentication').selectOption('USERNAME_PASSWORD');
-    await page.getByLabel('Git username').fill(git.username);
-    await page.getByLabel('OpenJCockpit project ID').fill('cockpit-e2e');
-    await page.getByLabel('OpenJCockpit workflow ID').fill('wf-e2e');
-
     // Connection check: a single smart-HTTP request from the backend, before anything is stored.
-    const checkResult = page.getByRole('status');
-    await page.getByLabel('Password', { exact: true }).fill('wrong-password');
-    await page.getByRole('button', { name: 'Check connection' }).click();
-    await expect(checkResult).toHaveText('The server rejected the credentials (HTTP 401).');
-    await page.getByLabel('Password', { exact: true }).fill(git.password);
-    await page.getByRole('button', { name: 'Check connection' }).click();
-    await expect(checkResult).toHaveText('Connected: the repository is reachable and the credentials are accepted.');
-    await page.getByRole('button', { name: 'Connect repository' }).click();
-    await expect(alert(page)).toContainText('Repository registered.');
-    await expect(page.locator('.repo-row', { hasText: 'E2E project' })).toContainText('Username and password stored');
+    const wrong = await request.post('/api/projects/connection-check', {
+      headers,
+      data: { gitUrl, credentialType: 'USERNAME_PASSWORD', gitUsername: git.username, secret: 'wrong-password' },
+    });
+    expect(await wrong.json()).toMatchObject({ reachable: false, outcome: 'AUTH_FAILED', message: 'The server rejected the credentials (HTTP 401).' });
+    const right = await request.post('/api/projects/connection-check', {
+      headers,
+      data: { gitUrl, credentialType: 'USERNAME_PASSWORD', gitUsername: git.username, secret: git.password },
+    });
+    expect(await right.json()).toMatchObject({ reachable: true, outcome: 'OK' });
 
-    // The password is write-only: editing shows an empty field and saving keeps the stored one.
-    await page.getByRole('button', { name: 'Edit E2E project' }).click();
-    await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
-    await page.getByRole('button', { name: 'Check connection' }).click();
-    await expect(page.getByRole('status')).toContainText('Connected');
-    await page.getByRole('button', { name: 'Save repository' }).click();
-    await expect(alert(page)).toContainText('Repository saved.');
-    await expect(page.locator('.repo-row', { hasText: 'E2E project' })).toContainText('Username and password stored');
+    const created = await request.post('/api/projects', { headers, data: { ...repository, secret: git.password } });
+    expect(created.status()).toBe(201);
+    const project = await created.json();
+    projectId = project.id;
+    expect(project).toMatchObject({ name: 'E2E project', hasSecret: true, defaultBranch: 'main' });
+    // The secret is write-only.
+    expect(JSON.stringify(project)).not.toContain(git.password);
+
+    // One repository per OpenJCockpit project.
+    const duplicate = await request.post('/api/projects', { headers, data: { ...repository, secret: git.password } });
+    expect(duplicate.status()).toBe(409);
+
+    // Editing without a secret keeps the stored one, and the check can reuse it.
+    const reuse = await request.post('/api/projects/connection-check', {
+      headers,
+      data: { gitUrl, credentialType: 'USERNAME_PASSWORD', gitUsername: git.username, projectId },
+    });
+    expect(await reuse.json()).toMatchObject({ reachable: true, outcome: 'OK' });
+    const saved = await request.put(`/api/projects/${projectId}`, { headers, data: repository });
+    expect(saved.status()).toBe(200);
+    expect(await saved.json()).toMatchObject({ hasSecret: true });
   });
 
   await test.step('complete the project interview, including an adaptive follow-up', async () => {
-    await openSection(page, 'Discovery interviews');
-    await expect(page.getByLabel('Active project')).toHaveValue(/.+/);
-    await page.getByLabel('Interview template').selectOption({ label: 'Project discovery (PROJECT)' });
-    await page.getByRole('button', { name: 'Start interview' }).click();
-    const question = page.locator('.session h3');
-    const answer = page.getByPlaceholder('Give a concrete answer…');
-    const submit = page.getByRole('button', { name: 'Submit answer' });
+    const templates = (await (await request.get('/api/templates', { headers })).json()) as Array<{ id: string; name: string; kind: string }>;
+    const template = templates.find(t => t.kind === 'PROJECT' && t.name === 'Project discovery');
+    expect(template, 'seeded project template').toBeDefined();
+    const started = await request.post('/api/interviews', { headers, data: { projectId, templateId: template!.id } });
+    expect(started.status()).toBe(201);
+    let interview = await started.json();
+    interviewId = interview.id;
+    const answer = async (text: string) => {
+      const response = await request.post(`/api/interviews/${interviewId}/answers`, { headers, data: { answer: text } });
+      expect(response.status()).toBe(200);
+      return response.json();
+    };
 
-    await expect(question).toHaveText('What is the measurable project outcome and who benefits?');
-    await answer.fill('Faster delivery');
-    await submit.click();
+    expect(interview.currentQuestion).toBe('What is the measurable project outcome and who benefits?');
+    interview = await answer('Faster delivery');
     // Too vague for a required question: the assistant asks a follow-up instead of advancing.
-    await expect(question).toContainText('Can you make this more concrete');
-    await answer.fill(detailed('Outcome'));
-    await submit.click();
+    expect(interview.currentQuestion).toContain('Can you make this more concrete');
+    interview = await answer(detailed('Outcome'));
 
     for (const next of [
       'What is included and explicitly out of scope?',
       'Which architecture, integrations, technologies and constraints apply?',
       'Which ISO 25010, security and acceptance requirements are important?',
     ]) {
-      await expect(question).toHaveText(next);
-      await answer.fill(detailed(next));
-      await submit.click();
+      expect(interview.currentQuestion).toBe(next);
+      interview = await answer(detailed(next));
     }
-    await expect(question).toHaveText('Interview completed');
+    expect(interview.status).toBe('COMPLETE');
   });
 
   await test.step('generate three dependent spec drafts', async () => {
-    await page.getByRole('button', { name: 'Generate spec drafts' }).click();
-    await expect(page.getByRole('heading', { level: 1, name: 'Specifications' })).toBeVisible();
-    await expect(page.locator('details.spec')).toHaveCount(3);
-    await expect(page.locator('details.spec .state-draft')).toHaveCount(3);
+    const generated = await request.post(`/api/interviews/${interviewId}/generate`, { headers, data: {} });
+    expect(generated.status()).toBe(200);
+    specs = await generated.json();
+    expect(specs).toHaveLength(3);
+    expect(specs.map(s => s.status)).toEqual(['DRAFT', 'DRAFT', 'DRAFT']);
+    const listed = await (await request.get(`/api/projects/${projectId}/specs`, { headers })).json();
+    expect(listed).toHaveLength(3);
   });
 
   await test.step('approve the root spec, which pushes its own branch with one commit per file', async () => {
-    const root = page.locator('details.spec', { hasText: 'Define acceptance contract' });
-    await root.locator('summary').click();
-    await expect(root).toContainText('Dependencies: None');
-    await root.getByRole('button', { name: 'Approve and push branch' }).click();
-    await expect(alert(page)).toContainText('Spec pushed to branch spec/SPEC-');
-    await expect(root.locator('.state-approved')).toBeVisible();
-    const branch = (await root.locator('summary small').textContent())!.match(/branch (spec\/SPEC-[0-9a-f-]+)/)![1];
+    const root = specs.find(s => s.title.includes('Define acceptance contract'))!;
+    expect(root.dependsOn).toEqual([]);
+    const approved = await request.post(`/api/specs/${root.id}/approve`, { headers });
+    expect(approved.status()).toBe(200);
+    const spec = await approved.json();
+    expect(spec.status).toBe('APPROVED');
+    expect(spec.branch).toMatch(/^spec\/SPEC-/);
 
     const clone = mkdtempSync(`${tmpdir()}/e2e-clone-`);
     const authenticated = gitUrl.replace('http://', `http://${git.username}:${git.password}@`);
-    git_('clone', '--quiet', '--branch', branch, authenticated, clone);
-    const specs = `${clone}/specs`;
-    const folder = readdirSync(specs).find(name => name.startsWith('001-define-acceptance-contract'));
+    git_('clone', '--quiet', '--branch', spec.branch, authenticated, clone);
+    const folderRoot = `${clone}/specs`;
+    const folder = readdirSync(folderRoot).find(name => name.startsWith('001-define-acceptance-contract'));
     expect(folder, 'spec folder on the pushed branch').toBeDefined();
     for (const file of ['spec.md', 'plan.md', 'tasks.md', 'review.md'])
-      expect(existsSync(`${specs}/${folder}/${file}`), file).toBe(true);
-    expect(readFileSync(`${specs}/${folder}/spec.md`, 'utf8')).toContain('workflow_id: wf-e2e');
-    expect(readFileSync(`${specs}/_index.md`, 'utf8')).toContain(`(${folder}/spec.md)`);
+      expect(existsSync(`${folderRoot}/${folder}/${file}`), file).toBe(true);
+    expect(readFileSync(`${folderRoot}/${folder}/spec.md`, 'utf8')).toContain('workflow_id: wf-e2e');
+    expect(readFileSync(`${folderRoot}/_index.md`, 'utf8')).toContain(`(${folder}/spec.md)`);
     // Five commits on top of main: four spec files and the index, each committed separately.
     expect(git_('-C', clone, 'rev-list', '--count', 'origin/main..HEAD').trim()).toBe('5');
     expect(git_('-C', clone, 'log', '-1', '--format=%an')).toContain('OpenJControlTower');
   });
 
   await test.step('the dependency graph marks only the approved root as ready', async () => {
-    await openSection(page, 'Dependency graph');
-    const graph = page.getByRole('img', { name: 'Spec dependency graph' });
-    await expect(graph.locator('g')).toHaveCount(3);
-    await expect(graph.getByText(/READY/)).toHaveCount(1);
+    const graph = await (await request.get(`/api/projects/${projectId}/graph`, { headers })).json();
+    expect(graph.nodes).toHaveLength(3);
+    expect(graph.nodes.filter((n: { ready: boolean }) => n.ready)).toHaveLength(1);
   });
 
   await test.step('dispatch requires confirmation and never blindly retries', async () => {
-    await openSection(page, 'Dispatch queue');
-    await expect(page.getByText('1 ready')).toBeVisible();
-    const dispatch = page.getByRole('button', { name: 'Dispatch ready specs' });
-    await expect(dispatch).toBeDisabled();
-    await page.getByRole('checkbox').check();
-    await dispatch.click();
+    const proposal = await (await request.get(`/api/projects/${projectId}/queue/proposal`, { headers })).json();
+    expect(proposal).toHaveLength(1);
+    const dispatch = (repositoryPublished: boolean) =>
+      request.post(`/api/projects/${projectId}/queue/dispatch`, { headers, data: { repositoryPublished } });
+    expect((await dispatch(false)).status()).toBe(400);
+    const outcomes = await (await dispatch(true)).json();
     // OpenJCockpit is disabled in this stack: the outcome is recorded as UNKNOWN and taken off the queue.
-    await expect(alert(page)).toContainText('UNKNOWN');
-    await expect(page.getByText('0 ready')).toBeVisible();
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].result).toContain('UNKNOWN');
+    expect(await (await request.get(`/api/projects/${projectId}/queue/proposal`, { headers })).json()).toHaveLength(0);
   });
 
   await test.step('a feature interview can follow the completed project interview', async () => {
-    await openSection(page, 'Discovery interviews');
-    await expect(page.getByRole('button', { name: /Project discovery.*GENERATED/ })).toBeVisible();
-    await page.getByLabel('Interview template').selectOption({ label: 'Feature discovery (FEATURE)' });
-    await page.getByPlaceholder('Describe the feature you\'d like to create…').fill('Export the dependency graph as PNG');
-    await page.getByRole('button', { name: 'Start interview' }).click();
-    await expect(page.locator('.session h3')).toHaveText('Who needs this feature and which problem does it solve?');
+    const interviews = await (await request.get(`/api/projects/${projectId}/interviews`, { headers })).json();
+    expect(interviews.find((i: { id: string }) => i.id === interviewId).status).toBe('GENERATED');
+    const templates = (await (await request.get('/api/templates', { headers })).json()) as Array<{ id: string; kind: string }>;
+    const feature = templates.find(t => t.kind === 'FEATURE')!;
+    const started = await request.post('/api/interviews', {
+      headers,
+      data: { projectId, templateId: feature.id, featureRequest: 'Export the dependency graph as PNG' },
+    });
+    expect(started.status()).toBe(201);
+    expect((await started.json()).currentQuestion).toBe('Who needs this feature and which problem does it solve?');
   });
 });

@@ -11,7 +11,11 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       retries: 20
+  # Standalone sign-in for backend-only work without the OpenJCockpit stack:
+  # docker compose --profile standalone up, with KEYCLOAK_* pointing at it (see README). Tokens must carry the
+  # audience and roles the backend expects.
   keycloak:
+    profiles: [standalone]
     image: quay.io/keycloak/keycloak:26.2
     command: ["start-dev", "--import-realm"]
     environment:
@@ -54,13 +58,16 @@ services:
   backend:
     build: .
     ports:
-      - "8080:8080"
+      # 9180 on the host: 8080 is OpenJCockpit's Keycloak, which issues the tokens this backend validates.
+      - "9180:8080"
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-controltower}
       DB_USER: ${POSTGRES_USER:-controltower}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-dev-change-me}
-      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:-http://localhost:8081/realms/openjcontroltower}
-      KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:-http://keycloak:8081/realms/openjcontroltower/protocol/openid-connect/certs}
+      # Tokens come from the OpenJCockpit realm: the OpenJCockpit stack must be running (Keycloak on host port 8080).
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:-http://localhost:8080/realms/openjcockpit}
+      KEYCLOAK_JWKS_URI: ${KEYCLOAK_JWKS_URI:-http://host.docker.internal:8080/realms/openjcockpit/protocol/openid-connect/certs}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-openjcontroltower}
       # Each approved spec is pushed from a disposable container on this Compose network.
       GIT_RUNNER: docker
       DOCKER_PROXY_URL: http://docker-proxy:2375
@@ -73,22 +80,20 @@ services:
       AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
       COCKPIT_ENABLED: ${COCKPIT_ENABLED:-false}
       COCKPIT_BASE_URL: ${COCKPIT_BASE_URL:-http://host.docker.internal:8082}
-      COCKPIT_TOKEN_URI: ${COCKPIT_TOKEN_URI:-http://keycloak:8081/realms/openjcontroltower/protocol/openid-connect/token}
+      COCKPIT_TOKEN_URI: ${COCKPIT_TOKEN_URI:-http://host.docker.internal:8080/realms/openjcockpit/protocol/openid-connect/token}
       COCKPIT_CLIENT_ID: ${COCKPIT_CLIENT_ID:-openjcontroltower-service}
       COCKPIT_CLIENT_SECRET: ${COCKPIT_CLIENT_SECRET:-change-me-local}
       DECISION_PROVIDER: ${DECISION_PROVIDER:-deterministic}
       DECISION_ENDPOINT: ${DECISION_ENDPOINT:-https://api.laya.studio/v1/systemone}
       DECISION_API_KEY: ${DECISION_API_KEY:-}
-      CONTROLTOWER_EDITOR_ROLE: ${CONTROLTOWER_EDITOR_ROLE:-controltower-editor}
-      CONTROLTOWER_ADMIN_ROLE: ${CONTROLTOWER_ADMIN_ROLE:-controltower-admin}
+      CONTROLTOWER_EDITOR_ROLE: ${CONTROLTOWER_EDITOR_ROLE:-openjcockpit-operator}
+      CONTROLTOWER_ADMIN_ROLE: ${CONTROLTOWER_ADMIN_ROLE:-openjcockpit-admin}
       # Defaults for the settings page; values saved there take precedence.
       OPA_ENABLED: ${OPA_ENABLED:-true}
       OPA_URL: http://opa:8181
     depends_on:
       postgres:
         condition: service_healthy
-      keycloak:
-        condition: service_started
       docker-proxy:
         condition: service_started
       git-server:
@@ -97,15 +102,6 @@ services:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_KEYCLOAK_URL: http://localhost:8081
-    ports:
-      - "4000:8080"
-    depends_on:
-      - backend
 volumes:
   postgres_data:
   git_data:
