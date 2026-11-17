@@ -78,12 +78,35 @@ public class ApiController {
     @GetMapping("/templates") public List<Template> templates() { return db.templates(); }
     @PostMapping("/templates") @ResponseStatus(HttpStatus.CREATED)
     public Template createTemplate(@Valid @RequestBody NewTemplate input) {
+        validate(input);
+        Template t=new Template(UUID.randomUUID().toString(),input.name(),input.kind(),input.questions());
+        db.saveTemplate(t);return t;
+    }
+    @PutMapping("/templates/{id}")
+    public Template updateTemplate(@PathVariable String id,@Valid @RequestBody NewTemplate input) {
+        Template existing=existingTemplate(id);
+        if (existing.builtIn()) throw new IllegalStateException("Built-in templates cannot be edited");
+        validate(input);
+        // Active interviews index into the questions, so changing them mid-interview could break the session.
+        if (db.interviewCountForTemplate(id,true)>0) throw new IllegalStateException("Template is used by an active interview");
+        Template t=new Template(id,input.name(),input.kind(),input.questions());
+        db.updateTemplate(t);return t;
+    }
+    @DeleteMapping("/templates/{id}") @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteTemplate(@PathVariable String id) {
+        if (existingTemplate(id).builtIn()) throw new IllegalStateException("Built-in templates cannot be deleted");
+        if (db.interviewCountForTemplate(id,false)>0) throw new IllegalStateException("Template is used by interviews");
+        db.deleteTemplate(id);
+    }
+    private Template existingTemplate(String id) {
+        return db.templates().stream().filter(t->t.id().equals(id)).findFirst()
+            .orElseThrow(()->new ApiErrors.NotFoundException("Template not found"));
+    }
+    private static void validate(NewTemplate input) {
         if (!List.of("PROJECT","FEATURE").contains(input.kind())) throw new IllegalArgumentException("Kind must be PROJECT or FEATURE");
         if (input.questions().isEmpty() || input.questions().size()>30) throw new IllegalArgumentException("Expected 1-30 questions");
         if (input.questions().stream().anyMatch(q->q.id()==null || q.id().isBlank() || q.text()==null || q.text().isBlank()
             || q.maxFollowUps()<0 || q.maxFollowUps()>5)) throw new IllegalArgumentException("Invalid question");
-        Template t=new Template(UUID.randomUUID().toString(),input.name(),input.kind(),input.questions());
-        db.saveTemplate(t);return t;
     }
     @GetMapping("/spec-templates") public List<SpecTemplate> specTemplates() { return db.specTemplates(); }
     @PostMapping("/spec-templates") @ResponseStatus(HttpStatus.CREATED)

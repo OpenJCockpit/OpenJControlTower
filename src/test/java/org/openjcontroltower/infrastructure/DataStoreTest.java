@@ -76,6 +76,25 @@ class DataStoreTest {
         assertEquals(template,store.template("t"));
         assertThrows(IllegalArgumentException.class,()->store.template("missing"));
     }
+    @Test void updatesAndDeletesTemplatesAndCountsInterviews() {
+        store.saveTemplate(new Template("t","Old","PROJECT",List.of(new Question("goal","Goal?",true,2,"x")),true));
+        assertTrue(store.template("t").builtIn());
+        store.updateTemplate(new Template("t","New","FEATURE",List.of()));
+        Template updated=store.template("t");
+        assertEquals("New",updated.name());assertEquals("FEATURE",updated.kind());assertTrue(updated.builtIn());
+        assertEquals(0,store.interviewCountForTemplate("t",false));
+        store.deleteTemplate("t");
+        assertThrows(IllegalArgumentException.class,()->store.template("t"));
+    }
+    @Test void storesInterviewTimestamps() {
+        java.time.Instant created=java.time.Instant.parse("2026-01-01T10:00:00Z");
+        store.saveInterview(new Interview("i","p","t","PROJECT","T","ACTIVE",List.of(),0,0,"Q",created,created));
+        java.time.Instant later=created.plusSeconds(60);
+        store.saveInterview(new Interview("i","p","t","PROJECT","T","ACTIVE",List.of(),1,0,"Q2",null,later));
+        Interview read=store.interviews("p").getFirst();
+        assertEquals(created,read.createdAt());assertEquals(later,read.updatedAt());
+        assertEquals(1,store.interviewCountForTemplate("t",true));
+    }
     @Test void storesSpecTemplates() {
         SpecTemplate template=new SpecTemplate("s","Default","{{SPEC_ID}}",true);
         store.saveSpecTemplate(template);
@@ -88,8 +107,11 @@ class DataStoreTest {
         store.saveInterview(first);
         Interview second=new Interview("i","p","t","PROJECT","Title","COMPLETE",List.of(new Answer("q","Q1","A")),1,0,"");
         store.saveInterview(second);
-        assertEquals(List.of(second),store.interviews("p"));
-        assertEquals(second,store.interview("i"));
+        Interview stored=store.interview("i");
+        assertEquals(List.of(stored),store.interviews("p"));
+        assertNotNull(stored.createdAt());assertNotNull(stored.updatedAt());
+        assertEquals(second,new Interview(stored.id(),stored.projectId(),stored.templateId(),stored.kind(),stored.title(),
+            stored.status(),stored.answers(),stored.questionIndex(),stored.followUps(),stored.currentQuestion()));
         assertTrue(store.interviews("other").isEmpty());
         assertThrows(IllegalArgumentException.class,()->store.interview("missing"));
     }

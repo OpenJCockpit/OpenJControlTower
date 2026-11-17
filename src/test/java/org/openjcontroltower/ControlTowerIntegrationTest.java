@@ -99,7 +99,9 @@ class ControlTowerIntegrationTest {
         call(post("/api/interviews/missing/answers").content("{\"answer\":\"x\"}"),400);
     }
     @Test void runsDiscoveryToDispatchFlow() throws Exception {
-        assertEquals(2,call(get("/api/templates"),200).size());
+        int builtIn=0;
+        for (JsonNode t:call(get("/api/templates"),200)) if (t.get("builtIn").asBoolean()) builtIn++;
+        assertEquals(2,builtIn);
         assertEquals(1,call(get("/api/spec-templates"),200).size());
         String question="{\"id\":\"q\",\"text\":\"Q?\",\"required\":false,\"maxFollowUps\":0,\"completionCriteria\":\"c\"}";
         JsonNode template=call(post("/api/templates").content("{\"name\":\"Mini\",\"kind\":\"PROJECT\",\"questions\":["+question+"]}"),201);
@@ -210,5 +212,30 @@ class ControlTowerIntegrationTest {
         for (int i=0;i<4;i++) call(post("/api/interviews/"+id+"/answers").content(answer),200);
         mvc.perform(asEditor(post("/api/interviews/"+id+"/generate"))).andExpect(status().isOk())
             .andExpect(jsonPath("$[0].body",containsString("spec_id:"))).andExpect(jsonPath("$",hasSize(3)));
+    }
+    @Test void editsAndDeletesTemplatesWithGuards() throws Exception {
+        String question="{\"id\":\"q\",\"text\":\"Q?\",\"required\":false,\"maxFollowUps\":0,\"completionCriteria\":\"c\"}";
+        String body="{\"name\":\"Edited\",\"kind\":\"FEATURE\",\"questions\":["+question+"]}";
+        JsonNode created=call(post("/api/templates").content(body.replace("Edited","Original")),201);
+        assertFalse(created.get("builtIn").asBoolean());
+        String id=created.get("id").asText();
+        JsonNode updated=call(put("/api/templates/"+id).content(body),200);
+        assertEquals("Edited",updated.get("name").asText());assertEquals("FEATURE",updated.get("kind").asText());
+        call(put("/api/templates/"+id).content(body.replace("FEATURE","OTHER")),400);
+        call(put("/api/templates/missing").content(body),404);
+        mvc.perform(asEditor(delete("/api/templates/missing"))).andExpect(status().isNotFound());
+        for (JsonNode t:call(get("/api/templates"),200)) if (t.get("builtIn").asBoolean()) {
+            call(put("/api/templates/"+t.get("id").asText()).content(body),409);
+            mvc.perform(asEditor(delete("/api/templates/"+t.get("id").asText()))).andExpect(status().isConflict());
+        }
+        JsonNode project=call(post("/api/projects").content(project("Tpl","https://git.example.org/tpl.git","NONE",null,"cockpit-tpl")),201);
+        JsonNode featureTemplateInterview=call(post("/api/templates").content(body.replace("FEATURE","PROJECT")),201);
+        String usedId=featureTemplateInterview.get("id").asText();
+        JsonNode interview=call(post("/api/interviews").content("{\"projectId\":\""+project.get("id").asText()+"\",\"templateId\":\""+usedId+"\"}"),201);
+        assertNotNull(interview.get("createdAt"));assertNotNull(interview.get("updatedAt"));
+        call(put("/api/templates/"+usedId).content(body.replace("FEATURE","PROJECT")),409);
+        mvc.perform(asEditor(delete("/api/templates/"+usedId))).andExpect(status().isConflict());
+        mvc.perform(asEditor(delete("/api/templates/"+id))).andExpect(status().isNoContent());
+        call(put("/api/templates/"+id).content(body),404);
     }
 }
