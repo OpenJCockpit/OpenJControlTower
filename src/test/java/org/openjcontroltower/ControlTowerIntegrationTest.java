@@ -142,6 +142,7 @@ class ControlTowerIntegrationTest {
         JsonNode specs=call(post("/api/interviews/"+interviewId+"/generate").content(
             "{\"specTemplateId\":\""+specTemplate.get("id").asText()+"\"}"),200);
         assertEquals(3,specs.size());
+        specs.forEach(spec->assertEquals(interviewId,spec.get("interviewId").asText()));
         assertTrue(specs.get(0).get("body").asText().startsWith("# Define acceptance contract"));
         assertEquals(3,call(get("/api/projects/"+projectId+"/specs"),200).size());
         assertEquals(3,call(get("/api/projects/"+projectId+"/graph"),200).get("topologicalOrder").size());

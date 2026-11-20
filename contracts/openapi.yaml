@@ -1014,6 +1014,10 @@ components:
           type: string
           nullable: true
           description: Git branch the spec was pushed to on approval; null while DRAFT.
+        interviewId:
+          type: string
+          nullable: true
+          description: ID of the interview the spec was generated from; null for specs created before this link existed.
       required:
       - id
       - projectId

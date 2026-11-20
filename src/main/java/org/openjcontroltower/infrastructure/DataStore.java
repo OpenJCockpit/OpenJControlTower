@@ -108,8 +108,8 @@ public class DataStore {
     public void saveSpec(Spec s) { saveSpec(s,null); }
     /** {@code createdBy}: the user who generated the spec, or null when unknown. */
     public void saveSpec(Spec s, String createdBy) {
-        db.update("INSERT INTO specs(id,project_id,title,slug,status,body,dependencies_json,spec_path,created_by) VALUES(?,?,?,?,?,?,?,?,?)",
-            s.id(),s.projectId(),s.title(),s.slug(),s.status(),s.body(),json(s.dependsOn()),s.specPath(),createdBy);
+        db.update("INSERT INTO specs(id,project_id,title,slug,status,body,dependencies_json,spec_path,interview_id,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            s.id(),s.projectId(),s.title(),s.slug(),s.status(),s.body(),json(s.dependsOn()),s.specPath(),s.interviewId(),createdBy);
     }
     /** The user who generated the spec, or null when unknown. */
     public String specCreator(String id) {
@@ -123,7 +123,7 @@ public class DataStore {
         return db.query("SELECT * FROM specs WHERE project_id=? ORDER BY id",(r,n)->new Spec(r.getString("id"),
             r.getString("project_id"),r.getString("title"),r.getString("slug"),r.getString("status"),
             r.getString("body"),read(r.getString("dependencies_json"),new TypeReference<List<String>>(){}),
-            r.getString("spec_path"),r.getString("branch")),projectId);
+            r.getString("spec_path"),r.getString("branch"),r.getString("interview_id")),projectId);
     }
     public Spec spec(String id) {
         List<String> projects = db.query("SELECT project_id FROM specs WHERE id=?",(r,n)->r.getString(1),id);

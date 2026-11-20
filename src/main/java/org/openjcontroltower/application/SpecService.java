@@ -59,7 +59,7 @@ public class SpecService {
             String slug=SpecNaming.slug(p.title());
             String path=String.format("%03d-%s/spec.md",current.size()+i+1,slug);
             String body=formatMarkdown(template.content(),ids.get(i),project,p,dependencies);
-            result.add(new Spec(ids.get(i),project.id(),p.title(),slug,"DRAFT",body,List.copyOf(dependencies),path,null));
+            result.add(new Spec(ids.get(i),project.id(),p.title(),slug,"DRAFT",body,List.copyOf(dependencies),path,null,interview.id()));
         }
         graph.graph(concat(current,result));
         String author=CurrentUser.get().name();

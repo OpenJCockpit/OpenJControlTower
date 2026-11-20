@@ -24,8 +24,14 @@ public final class Models {
             this(id,projectId,templateId,kind,title,status,answers,questionIndex,followUps,currentQuestion,null,null);
         }
     }
+    /** {@code interviewId}: the interview the spec was generated from; null for specs that predate the link. */
     public record Spec(String id, String projectId, String title, String slug, String status,
-                       String body, List<String> dependsOn, String specPath, String branch) {}
+                       String body, List<String> dependsOn, String specPath, String branch, String interviewId) {
+        public Spec(String id, String projectId, String title, String slug, String status,
+                    String body, List<String> dependsOn, String specPath, String branch) {
+            this(id,projectId,title,slug,status,body,dependsOn,specPath,branch,null);
+        }
+    }
     public record Proposal(String title, String summary, List<String> acceptanceCriteria,
                            List<Integer> dependsOnIndexes, List<String> existingDependencyIds) {}
     public record GraphNode(String id, String title, String status, List<String> dependsOn, boolean ready) {}

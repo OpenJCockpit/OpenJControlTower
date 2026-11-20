@@ -128,9 +128,12 @@ class DataStoreTest {
         assertEquals(List.of("SPEC-0"),stored.dependsOn());
         assertEquals(List.of(stored),store.specs("p"));
         assertThrows(IllegalArgumentException.class,()->store.spec("missing"));
+        assertNull(stored.interviewId());
         assertNull(store.specCreator("SPEC-1"));
         store.saveSpec(new Spec("SPEC-2","p","Two","two","DRAFT","# Two",List.of(),"002-two/spec.md",null),"alice");
         assertEquals("alice",store.specCreator("SPEC-2"));
+        store.saveSpec(new Spec("SPEC-3","p","Three","three","DRAFT","# Three",List.of(),"003-three/spec.md",null,"i-1"));
+        assertEquals("i-1",store.spec("SPEC-3").interviewId());
         assertThrows(IllegalArgumentException.class,()->store.specCreator("missing"));
     }
     @Test void storesSettingsAsJson() {
