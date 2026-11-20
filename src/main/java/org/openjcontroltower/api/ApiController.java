@@ -135,6 +135,8 @@ public class ApiController {
     @GetMapping("/projects/{projectId}/graph") public Graph graph(@PathVariable String projectId) { return specs.graph(projectId); }
     @PostMapping("/specs/{id}/approve") public Spec approve(@PathVariable String id) { return specs.approve(id); }
     @PostMapping("/specs/{id}/complete") public Spec complete(@PathVariable String id) { return specs.markDone(id); }
+    @PostMapping("/projects/{projectId}/queue/reconcile")
+    public List<Spec> reconcile(@PathVariable String projectId) { return dispatch.reconcile(projectId); }
     @GetMapping("/projects/{projectId}/queue/proposal")
     public List<DispatchService.QueueCandidate> queue(@PathVariable String projectId) { return dispatch.candidates(projectId); }
     @PostMapping("/projects/{projectId}/queue/dispatch")

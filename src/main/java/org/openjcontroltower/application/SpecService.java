@@ -100,4 +100,11 @@ public class SpecService {
         store.setSpecStatus(specId,"DONE");
         return store.spec(specId);
     }
+    /** DONE confirmed by OpenJCockpit's queue rather than by a person. */
+    public Spec markDoneReconciled(String specId) {
+        Spec s=store.spec(specId);
+        if (!s.status().equals("DISPATCHED")) return s;
+        store.setSpecStatus(specId,"DONE");
+        return store.spec(specId);
+    }
 }
