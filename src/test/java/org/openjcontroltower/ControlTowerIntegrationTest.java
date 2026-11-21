@@ -163,7 +163,10 @@ class ControlTowerIntegrationTest {
         assertTrue(outcome.get(0).get("result").asText().startsWith("UNKNOWN"));
         assertEquals(0,call(get("/api/projects/"+projectId+"/queue/proposal"),200).size());
         // After a human has reconciled the run in OpenJCockpit, the spec can be acknowledged as DONE.
+        assertEquals(0,call(post("/api/projects/"+projectId+"/queue/reconcile"),200).size());
         store.setSpecStatus(first,"DISPATCHED");
+        // Reconciling asks OpenJCockpit, which is disabled here: the call fails and the spec is left untouched.
+        call(post("/api/projects/"+projectId+"/queue/reconcile"),409);
         assertEquals("DONE",call(post("/api/specs/"+first+"/complete"),200).get("status").asText());
     }
     @Test void findsTheRepositoryOfACockpitProjectAndKeepsItUnique() throws Exception {
