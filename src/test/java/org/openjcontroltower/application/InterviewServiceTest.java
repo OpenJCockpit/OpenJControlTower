@@ -30,6 +30,17 @@ class InterviewServiceTest {
             new Interview("p1","p","pt","PROJECT","Initial","GENERATED",List.of(),2,0,"")));
         assertEquals(140,service.start("p","t","x".repeat(300)).title().length());
     }
+    @Test void stampsTimestampsOnStartAndKeepsCreatedAtOnAnswer() {
+        when(store.template("pt")).thenReturn(project);
+        Interview started=service.start("p","pt"," ");
+        assertNotNull(started.createdAt());assertEquals(started.createdAt(),started.updatedAt());
+        when(store.template("pt")).thenReturn(project);
+        when(store.interview(started.id())).thenReturn(started);
+        when(ai.assess(any(),anyString(),anyList())).thenReturn(new AiAssistant.Evaluation(true,""));
+        Interview answered=service.answer(started.id(),"A measurable goal");
+        assertEquals(started.createdAt(),answered.createdAt());
+        assertFalse(answered.updatedAt().isBefore(started.updatedAt()));
+    }
     @Test void startsProjectInterviewWithFirstQuestion() {
         when(store.template("pt")).thenReturn(project);
         Interview result=service.start("p","pt"," ");

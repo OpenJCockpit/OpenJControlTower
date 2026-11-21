@@ -59,7 +59,7 @@ public class SpecService {
             String slug=SpecNaming.slug(p.title());
             String path=String.format("%03d-%s/spec.md",current.size()+i+1,slug);
             String body=formatMarkdown(template.content(),ids.get(i),project,p,dependencies);
-            result.add(new Spec(ids.get(i),project.id(),p.title(),slug,"DRAFT",body,List.copyOf(dependencies),path,null));
+            result.add(new Spec(ids.get(i),project.id(),p.title(),slug,"DRAFT",body,List.copyOf(dependencies),path,null,interview.id()));
         }
         graph.graph(concat(current,result));
         String author=CurrentUser.get().name();
@@ -97,6 +97,13 @@ public class SpecService {
         Spec s=store.spec(specId);
         if (!s.status().equals("DISPATCHED")) throw new IllegalArgumentException("Only DISPATCHED can become DONE");
         // Manual acknowledgement in MVP; production must reconcile with OpenJCockpit before marking DONE.
+        store.setSpecStatus(specId,"DONE");
+        return store.spec(specId);
+    }
+    /** DONE confirmed by OpenJCockpit's queue rather than by a person. */
+    public Spec markDoneReconciled(String specId) {
+        Spec s=store.spec(specId);
+        if (!s.status().equals("DISPATCHED")) return s;
         store.setSpecStatus(specId,"DONE");
         return store.spec(specId);
     }

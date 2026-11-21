@@ -10,6 +10,10 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class ApiErrors {
+    /** Mapped to 404; the other lookups keep their 400 for compatibility. */
+    public static class NotFoundException extends RuntimeException {
+        public NotFoundException(String message) { super(message); }
+    }
     @ExceptionHandler({IllegalArgumentException.class,MethodArgumentNotValidException.class})
     ResponseEntity<Map<String,String>> badRequest(Exception error) {
         return ResponseEntity.badRequest().body(Map.of("error",error.getMessage()==null?"Invalid request":error.getMessage()));
@@ -17,6 +21,10 @@ public class ApiErrors {
     @ExceptionHandler(PolicyGuard.PolicyDeniedException.class)
     ResponseEntity<Map<String,String>> denied(PolicyGuard.PolicyDeniedException error) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error",error.getMessage()));
+    }
+    @ExceptionHandler(NotFoundException.class)
+    ResponseEntity<Map<String,String>> notFound(NotFoundException error) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error",error.getMessage()));
     }
     @ExceptionHandler(IllegalStateException.class)
     ResponseEntity<Map<String,String>> conflict(IllegalStateException error) {

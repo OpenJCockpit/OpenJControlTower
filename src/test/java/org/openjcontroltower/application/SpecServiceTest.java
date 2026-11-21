@@ -145,4 +145,12 @@ class SpecServiceTest {
         when(store.spec("B")).thenReturn(spec("B","APPROVED"));
         assertThrows(IllegalArgumentException.class,()->service.markDone("B"));
     }
+    @Test void reconciliationMarksOnlyDispatchedSpecsDone() {
+        when(store.spec("A")).thenReturn(spec("A","DISPATCHED"),spec("A","DONE"));
+        assertEquals("DONE",service.markDoneReconciled("A").status());
+        verify(store).setSpecStatus("A","DONE");
+        when(store.spec("B")).thenReturn(spec("B","APPROVED"));
+        assertEquals("APPROVED",service.markDoneReconciled("B").status());
+        verify(store,never()).setSpecStatus("B","DONE");
+    }
 }

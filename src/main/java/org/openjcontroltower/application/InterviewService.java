@@ -3,6 +3,7 @@ package org.openjcontroltower.application;
 import org.openjcontroltower.domain.Models.*;
 import org.openjcontroltower.infrastructure.DataStore;
 import org.springframework.stereotype.Service;
+import java.time.Instant;
 import java.util.*;
 
 @Service
@@ -23,9 +24,10 @@ public class InterviewService {
         if (!template.kind().equals(feature ? "FEATURE" : "PROJECT"))
             throw new IllegalArgumentException("Interview kind does not match template");
         List<Answer> initial = feature ? List.of(new Answer("feature-request", "New feature request", featureRequest)) : List.of();
+        Instant now = Instant.now();
         Interview interview = new Interview(UUID.randomUUID().toString(),projectId,templateId,template.kind(),
             feature ? featureRequest.substring(0,Math.min(featureRequest.length(),140)) : "Project discovery",
-            "ACTIVE",initial,0,0,template.questions().getFirst().text());
+            "ACTIVE",initial,0,0,template.questions().getFirst().text(),now,now);
         store.saveInterview(interview);
         return interview;
     }
@@ -46,7 +48,7 @@ public class InterviewService {
             status.equals("COMPLETE") ? "" : template.questions().get(index).text();
         if (askMore && (next == null || next.isBlank())) next="Can you give a concrete example?";
         Interview updated=new Interview(id,current.projectId(),current.templateId(),current.kind(),current.title(),
-            status,List.copyOf(history),index,askMore?current.followUps()+1:0,next);
+            status,List.copyOf(history),index,askMore?current.followUps()+1:0,next,current.createdAt(),Instant.now());
         store.saveInterview(updated);
         return updated;
     }

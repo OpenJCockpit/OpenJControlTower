@@ -7,6 +7,8 @@ import org.openjcontroltower.domain.Models.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,6 +35,7 @@ public class DataStore {
         if (records.isEmpty()) throw new IllegalArgumentException(type + " not found");
         return records.getFirst();
     }
+    private static Instant instant(Timestamp t) { return t == null ? null : t.toInstant(); }
     /** Stores a new project; {@code encryptedSecret} is ciphertext or null. */
     public void saveProject(Project p, String encryptedSecret) {
         db.update("INSERT INTO projects(id,name,git_url,default_branch,credential_type,git_username,encrypted_secret,cockpit_project_id,workflow_id) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -53,11 +56,21 @@ public class DataStore {
     }
     public Project project(String id) { return single(projects().stream().filter(p -> p.id().equals(id)).toList(), "Project"); }
     public void saveTemplate(Template t) {
-        db.update("INSERT INTO templates(id,name,kind,questions_json) VALUES(?,?,?,?)", t.id(),t.name(),t.kind(),json(t.questions()));
+        db.update("INSERT INTO templates(id,name,kind,questions_json,builtin) VALUES(?,?,?,?,?)", t.id(),t.name(),t.kind(),json(t.questions()),t.builtIn());
+    }
+    /** Replaces name, kind and questions; the built-in flag is never changed here. */
+    public void updateTemplate(Template t) {
+        db.update("UPDATE templates SET name=?,kind=?,questions_json=? WHERE id=?",t.name(),t.kind(),json(t.questions()),t.id());
+    }
+    public void deleteTemplate(String id) { db.update("DELETE FROM templates WHERE id=?",id); }
+    public int interviewCountForTemplate(String templateId, boolean activeOnly) {
+        return Optional.ofNullable(db.queryForObject("SELECT COUNT(*) FROM interviews WHERE template_id=?"+(activeOnly?" AND status='ACTIVE'":""),
+            Integer.class,templateId)).orElse(0);
     }
     public List<Template> templates() {
         return db.query("SELECT * FROM templates ORDER BY name", (r,n) -> new Template(r.getString("id"),
-            r.getString("name"),r.getString("kind"),read(r.getString("questions_json"),new TypeReference<List<Question>>(){})));
+            r.getString("name"),r.getString("kind"),read(r.getString("questions_json"),new TypeReference<List<Question>>(){}),
+            r.getBoolean("builtin")));
     }
     public Template template(String id) { return single(templates().stream().filter(t -> t.id().equals(id)).toList(), "Template"); }
     public void saveSpecTemplate(SpecTemplate template) {
@@ -72,18 +85,21 @@ public class DataStore {
         return single(specTemplates().stream().filter(t->t.id().equals(id)).toList(),"Spec template");
     }
     public void saveInterview(Interview i) {
-        int updated = db.update("UPDATE interviews SET project_id=?,template_id=?,kind=?,title=?,status=?,answers_json=?,question_index=?,followups=?,current_question=? WHERE id=?",
-            i.projectId(),i.templateId(),i.kind(),i.title(),i.status(),json(i.answers()),i.questionIndex(),i.followUps(),i.currentQuestion(),i.id());
+        Timestamp updatedAt = Timestamp.from(i.updatedAt() != null ? i.updatedAt() : Instant.now());
+        int updated = db.update("UPDATE interviews SET project_id=?,template_id=?,kind=?,title=?,status=?,answers_json=?,question_index=?,followups=?,current_question=?,updated_at=? WHERE id=?",
+            i.projectId(),i.templateId(),i.kind(),i.title(),i.status(),json(i.answers()),i.questionIndex(),i.followUps(),i.currentQuestion(),updatedAt,i.id());
         if (updated == 0) {
-            db.update("INSERT INTO interviews(id,project_id,template_id,kind,title,status,answers_json,question_index,followups,current_question) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                i.id(),i.projectId(),i.templateId(),i.kind(),i.title(),i.status(),json(i.answers()),i.questionIndex(),i.followUps(),i.currentQuestion());
+            Timestamp createdAt = i.createdAt() != null ? Timestamp.from(i.createdAt()) : updatedAt;
+            db.update("INSERT INTO interviews(id,project_id,template_id,kind,title,status,answers_json,question_index,followups,current_question,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                i.id(),i.projectId(),i.templateId(),i.kind(),i.title(),i.status(),json(i.answers()),i.questionIndex(),i.followUps(),i.currentQuestion(),createdAt,updatedAt);
         }
     }
     public List<Interview> interviews(String projectId) {
         return db.query("SELECT * FROM interviews WHERE project_id=? ORDER BY id", (r,n) -> new Interview(r.getString("id"),
             r.getString("project_id"),r.getString("template_id"),r.getString("kind"),r.getString("title"),r.getString("status"),
             read(r.getString("answers_json"),new TypeReference<List<Answer>>(){}),r.getInt("question_index"),
-            r.getInt("followups"),r.getString("current_question")),projectId);
+            r.getInt("followups"),r.getString("current_question"),instant(r.getTimestamp("created_at")),
+            instant(r.getTimestamp("updated_at"))),projectId);
     }
     public Interview interview(String id) {
         return single(db.query("SELECT project_id FROM interviews WHERE id=?",(r,n)->r.getString(1),id)
@@ -92,8 +108,8 @@ public class DataStore {
     public void saveSpec(Spec s) { saveSpec(s,null); }
     /** {@code createdBy}: the user who generated the spec, or null when unknown. */
     public void saveSpec(Spec s, String createdBy) {
-        db.update("INSERT INTO specs(id,project_id,title,slug,status,body,dependencies_json,spec_path,created_by) VALUES(?,?,?,?,?,?,?,?,?)",
-            s.id(),s.projectId(),s.title(),s.slug(),s.status(),s.body(),json(s.dependsOn()),s.specPath(),createdBy);
+        db.update("INSERT INTO specs(id,project_id,title,slug,status,body,dependencies_json,spec_path,interview_id,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            s.id(),s.projectId(),s.title(),s.slug(),s.status(),s.body(),json(s.dependsOn()),s.specPath(),s.interviewId(),createdBy);
     }
     /** The user who generated the spec, or null when unknown. */
     public String specCreator(String id) {
@@ -107,7 +123,7 @@ public class DataStore {
         return db.query("SELECT * FROM specs WHERE project_id=? ORDER BY id",(r,n)->new Spec(r.getString("id"),
             r.getString("project_id"),r.getString("title"),r.getString("slug"),r.getString("status"),
             r.getString("body"),read(r.getString("dependencies_json"),new TypeReference<List<String>>(){}),
-            r.getString("spec_path"),r.getString("branch")),projectId);
+            r.getString("spec_path"),r.getString("branch"),r.getString("interview_id")),projectId);
     }
     public Spec spec(String id) {
         List<String> projects = db.query("SELECT project_id FROM specs WHERE id=?",(r,n)->r.getString(1),id);

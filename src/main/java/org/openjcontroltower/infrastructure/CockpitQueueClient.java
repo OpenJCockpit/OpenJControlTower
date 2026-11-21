@@ -10,7 +10,10 @@ import org.springframework.web.util.UriUtils;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import org.springframework.core.ParameterizedTypeReference;
 
 /** Narrow adapter for OpenJCockpit's OpenAPI queue item operation. */
 @Component
@@ -25,6 +28,31 @@ public class CockpitQueueClient {
         @Value("${controltower.http.read-timeout}") Duration readTimeout) {
         this.enabled=enabled;this.baseUrl=baseUrl.replaceAll("/+$","");this.tokens=tokens;
         this.rest=HttpClients.withTimeouts(connectTimeout,readTimeout);
+    }
+    /** One OpenJCockpit queue item, reduced to what reconciliation needs. */
+    public record QueueItem(String specFile,String status) {}
+
+    private OAuth2AuthorizedClient authorize() {
+        if (!enabled) throw new IllegalStateException("OpenJCockpit dispatch is disabled in configuration");
+        OAuth2AuthorizedClient client=tokens.authorize(OAuth2AuthorizeRequest.withClientRegistrationId("openjcockpit")
+            .principal("openjcontroltower-service").build());
+        if (client==null) throw new IllegalStateException("Unable to obtain OpenJCockpit service token");
+        return client;
+    }
+    /** Open and recently finished items of the project's spec queue. */
+    public List<QueueItem> items(String projectId) {
+        OAuth2AuthorizedClient client=authorize();
+        String path="/api/projects/"+UriUtils.encodePathSegment(projectId,StandardCharsets.UTF_8)+"/spec-queue";
+        Map<String,Object> queue=rest.get().uri(URI.create(baseUrl+path)).headers(h->h.setBearerAuth(client.getAccessToken().getTokenValue()))
+            .retrieve().body(new ParameterizedTypeReference<Map<String,Object>>() {});
+        List<QueueItem> result=new ArrayList<>();
+        if (queue==null) return result;
+        for (String key:List.of("items","recentlyFinished"))
+            if (queue.get(key) instanceof List<?> list)
+                for (Object o:list)
+                    if (o instanceof Map<?,?> m && m.get("specFile") instanceof String file && m.get("status") instanceof String status)
+                        result.add(new QueueItem(file,status));
+        return result;
     }
     public String enqueue(String projectId,String workflowId,String specFile) {
         if (!enabled) throw new IllegalStateException("OpenJCockpit dispatch is disabled in configuration");

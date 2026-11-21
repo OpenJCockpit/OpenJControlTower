@@ -14,8 +14,8 @@ class BootstrapTemplatesTest {
         when(store.templates()).thenReturn(List.of());
         new BootstrapTemplates().seedInterviewTemplates(store).run(null);
         verify(store).saveSpecTemplate(argThat(t->t.defaultTemplate() && t.content().contains("{{SPEC_ID}}")));
-        verify(store).saveTemplate(argThat(t->t.kind().equals("PROJECT") && t.questions().size()==4));
-        verify(store).saveTemplate(argThat(t->t.kind().equals("FEATURE") && t.questions().size()==4));
+        verify(store).saveTemplate(argThat(t->t.kind().equals("PROJECT") && t.questions().size()==4 && t.builtIn()));
+        verify(store).saveTemplate(argThat(t->t.kind().equals("FEATURE") && t.questions().size()==4 && t.builtIn()));
     }
     @Test void leavesExistingTemplatesUntouched() throws Exception {
         when(store.specTemplates()).thenReturn(List.of(new SpecTemplate("s","S","x",true)));

@@ -58,4 +58,14 @@ class CockpitQueueClientTest {
         server.respond(201,"{}").delay(1500);
         assertThrows(RuntimeException.class,()->client(true,Duration.ofMillis(200)).enqueue("p","wf","001-a/spec.md"));
     }
+    @Test void readsOpenAndFinishedQueueItems() {
+        givenToken();
+        server.respond(200,"{\"items\":[{\"specFile\":\"a/spec.md\",\"status\":\"RUNNING\"}],"
+            +"\"recentlyFinished\":[{\"specFile\":\"b/spec.md\",\"status\":\"MERGED\"}]}");
+        assertEquals(java.util.List.of(new CockpitQueueClient.QueueItem("a/spec.md","RUNNING"),
+            new CockpitQueueClient.QueueItem("b/spec.md","MERGED")),client(true,Duration.ofSeconds(2)).items("team/a b"));
+        assertEquals("GET",server.last().method());
+        assertEquals("/api/projects/team%2Fa%20b/spec-queue",server.last().path());
+        assertEquals("Bearer service-token",server.last().authorization());
+    }
 }

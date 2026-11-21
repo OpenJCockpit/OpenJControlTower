@@ -78,4 +78,24 @@ class DispatchServiceTest {
         service.dispatch("p",true);
         verify(store).updateDispatch("B","UNKNOWN","Unknown transport failure");
     }
+    @Test void reconcileMarksOnlyFinishedDispatchedSpecsDone() {
+        Spec dispatchedA=new Spec("A","p","A","slug","DISPATCHED","body",List.of(),"A/spec.md",null);
+        Spec dispatchedB=new Spec("B","p","B","slug","DISPATCHED","body",List.of(),"B/spec.md",null);
+        Spec approved=spec("C");
+        when(store.project("p")).thenReturn(project);
+        when(store.specs("p")).thenReturn(List.of(dispatchedA,dispatchedB,approved));
+        when(cockpit.items("cockpit-1")).thenReturn(List.of(new CockpitQueueClient.QueueItem("A/spec.md","MERGED"),
+            new CockpitQueueClient.QueueItem("B/spec.md","RUNNING"),new CockpitQueueClient.QueueItem("C/spec.md","MERGED")));
+        when(specs.markDoneReconciled("A")).thenReturn(dispatchedA);
+        assertEquals(List.of(dispatchedA),service.reconcile("p"));
+        verify(specs).markDoneReconciled("A");
+        verify(specs,never()).markDoneReconciled("B");
+        verify(specs,never()).markDoneReconciled("C");
+    }
+    @Test void reconcileSkipsCockpitWhenNothingIsDispatched() {
+        when(store.project("p")).thenReturn(project);
+        when(store.specs("p")).thenReturn(List.of(a));
+        assertTrue(service.reconcile("p").isEmpty());
+        verifyNoInteractions(cockpit);
+    }
 }

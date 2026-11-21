@@ -59,4 +59,20 @@ public class DispatchService {
         }
         return outcomes;
     }
+    /** Cockpit item states that mean the work has landed (or needed no change). */
+    private static final Set<String> FINISHED=Set.of("MERGED","COMPLETED_NO_CHANGES");
+
+    /** Marks DISPATCHED specs DONE when OpenJCockpit reports their queue item finished. Returns the specs that changed. */
+    public synchronized List<Spec> reconcile(String projectId) {
+        Project project=store.project(projectId);
+        List<Spec> dispatched=store.specs(projectId).stream().filter(s->s.status().equals("DISPATCHED")).toList();
+        if (dispatched.isEmpty()) return List.of();
+        Set<String> finished=new HashSet<>();
+        for (CockpitQueueClient.QueueItem item:cockpit.items(project.cockpitProjectId()))
+            if (FINISHED.contains(item.status())) finished.add(item.specFile());
+        List<Spec> changed=new ArrayList<>();
+        for (Spec spec:dispatched)
+            if (finished.contains(spec.specPath())) changed.add(specs.markDoneReconciled(spec.id()));
+        return changed;
+    }
 }

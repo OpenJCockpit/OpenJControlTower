@@ -16,6 +16,11 @@ class ApiErrorsTest {
         assertEquals(403,response.getStatusCode().value());
         assertEquals(Map.of("error","Denied by policy: x"),response.getBody());
     }
+    @Test void mapsNotFoundTo404() {
+        var response=errors.notFound(new ApiErrors.NotFoundException("Template not found"));
+        assertEquals(404,response.getStatusCode().value());
+        assertEquals(Map.of("error","Template not found"),response.getBody());
+    }
     @Test void mapsStateErrorsToConflict() {
         assertEquals(409,errors.conflict(new IllegalStateException("busy")).getStatusCode().value());
         assertEquals(Map.of("error","busy"),errors.conflict(new IllegalStateException("busy")).getBody());

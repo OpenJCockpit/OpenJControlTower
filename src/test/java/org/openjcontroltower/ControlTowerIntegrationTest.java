@@ -99,7 +99,9 @@ class ControlTowerIntegrationTest {
         call(post("/api/interviews/missing/answers").content("{\"answer\":\"x\"}"),400);
     }
     @Test void runsDiscoveryToDispatchFlow() throws Exception {
-        assertEquals(2,call(get("/api/templates"),200).size());
+        int builtIn=0;
+        for (JsonNode t:call(get("/api/templates"),200)) if (t.get("builtIn").asBoolean()) builtIn++;
+        assertEquals(2,builtIn);
         assertEquals(1,call(get("/api/spec-templates"),200).size());
         String question="{\"id\":\"q\",\"text\":\"Q?\",\"required\":false,\"maxFollowUps\":0,\"completionCriteria\":\"c\"}";
         JsonNode template=call(post("/api/templates").content("{\"name\":\"Mini\",\"kind\":\"PROJECT\",\"questions\":["+question+"]}"),201);
@@ -140,6 +142,7 @@ class ControlTowerIntegrationTest {
         JsonNode specs=call(post("/api/interviews/"+interviewId+"/generate").content(
             "{\"specTemplateId\":\""+specTemplate.get("id").asText()+"\"}"),200);
         assertEquals(3,specs.size());
+        specs.forEach(spec->assertEquals(interviewId,spec.get("interviewId").asText()));
         assertTrue(specs.get(0).get("body").asText().startsWith("# Define acceptance contract"));
         assertEquals(3,call(get("/api/projects/"+projectId+"/specs"),200).size());
         assertEquals(3,call(get("/api/projects/"+projectId+"/graph"),200).get("topologicalOrder").size());
@@ -160,7 +163,10 @@ class ControlTowerIntegrationTest {
         assertTrue(outcome.get(0).get("result").asText().startsWith("UNKNOWN"));
         assertEquals(0,call(get("/api/projects/"+projectId+"/queue/proposal"),200).size());
         // After a human has reconciled the run in OpenJCockpit, the spec can be acknowledged as DONE.
+        assertEquals(0,call(post("/api/projects/"+projectId+"/queue/reconcile"),200).size());
         store.setSpecStatus(first,"DISPATCHED");
+        // Reconciling asks OpenJCockpit, which is disabled here: the call fails and the spec is left untouched.
+        call(post("/api/projects/"+projectId+"/queue/reconcile"),409);
         assertEquals("DONE",call(post("/api/specs/"+first+"/complete"),200).get("status").asText());
     }
     @Test void findsTheRepositoryOfACockpitProjectAndKeepsItUnique() throws Exception {
@@ -210,5 +216,30 @@ class ControlTowerIntegrationTest {
         for (int i=0;i<4;i++) call(post("/api/interviews/"+id+"/answers").content(answer),200);
         mvc.perform(asEditor(post("/api/interviews/"+id+"/generate"))).andExpect(status().isOk())
             .andExpect(jsonPath("$[0].body",containsString("spec_id:"))).andExpect(jsonPath("$",hasSize(3)));
+    }
+    @Test void editsAndDeletesTemplatesWithGuards() throws Exception {
+        String question="{\"id\":\"q\",\"text\":\"Q?\",\"required\":false,\"maxFollowUps\":0,\"completionCriteria\":\"c\"}";
+        String body="{\"name\":\"Edited\",\"kind\":\"FEATURE\",\"questions\":["+question+"]}";
+        JsonNode created=call(post("/api/templates").content(body.replace("Edited","Original")),201);
+        assertFalse(created.get("builtIn").asBoolean());
+        String id=created.get("id").asText();
+        JsonNode updated=call(put("/api/templates/"+id).content(body),200);
+        assertEquals("Edited",updated.get("name").asText());assertEquals("FEATURE",updated.get("kind").asText());
+        call(put("/api/templates/"+id).content(body.replace("FEATURE","OTHER")),400);
+        call(put("/api/templates/missing").content(body),404);
+        mvc.perform(asEditor(delete("/api/templates/missing"))).andExpect(status().isNotFound());
+        for (JsonNode t:call(get("/api/templates"),200)) if (t.get("builtIn").asBoolean()) {
+            call(put("/api/templates/"+t.get("id").asText()).content(body),409);
+            mvc.perform(asEditor(delete("/api/templates/"+t.get("id").asText()))).andExpect(status().isConflict());
+        }
+        JsonNode project=call(post("/api/projects").content(project("Tpl","https://git.example.org/tpl.git","NONE",null,"cockpit-tpl")),201);
+        JsonNode featureTemplateInterview=call(post("/api/templates").content(body.replace("FEATURE","PROJECT")),201);
+        String usedId=featureTemplateInterview.get("id").asText();
+        JsonNode interview=call(post("/api/interviews").content("{\"projectId\":\""+project.get("id").asText()+"\",\"templateId\":\""+usedId+"\"}"),201);
+        assertNotNull(interview.get("createdAt"));assertNotNull(interview.get("updatedAt"));
+        call(put("/api/templates/"+usedId).content(body.replace("FEATURE","PROJECT")),409);
+        mvc.perform(asEditor(delete("/api/templates/"+usedId))).andExpect(status().isConflict());
+        mvc.perform(asEditor(delete("/api/templates/"+id))).andExpect(status().isNoContent());
+        call(put("/api/templates/"+id).content(body),404);
     }
 }
